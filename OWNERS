@@ -1,0 +1,15 @@
+# OWNERS — github.com/costa92/llm-agent-customer-support
+#
+# Code review and approval for the reference customer-support service built on
+# the Go LLM agents framework.
+#
+# Format: https://www.kubernetes.io/docs/contribute/participate/roles-and-responsibilities/
+
+approvers:
+  - costa92
+
+reviewers:
+  - costa92
+
+labels:
+  - area/refsvc
