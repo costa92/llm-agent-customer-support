@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	agents "github.com/costa92/llm-agent"
+	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -70,6 +71,58 @@ func TestChatHandler_RejectsInvalidRequest(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestChatHandler_ThreadsProvidedSessionIDIntoContext(t *testing.T) {
+	agent := &sessionAwareAgent{answer: "ok"}
+	mux := NewMux(Handlers{
+		Agent:  agent,
+		Ready:  func(context.Context) error { return nil },
+		Tracer: otel.Tracer("test"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewBufferString(`{"message":"hi","session_id":"sess-123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if agent.lastSessionID != "sess-123" {
+		t.Fatalf("agent saw session_id = %q, want %q", agent.lastSessionID, "sess-123")
+	}
+	if got := rec.Header().Get("X-Session-Id"); got != "sess-123" {
+		t.Fatalf("X-Session-Id = %q, want %q", got, "sess-123")
+	}
+}
+
+func TestChatHandler_GeneratesSessionIDWhenMissing(t *testing.T) {
+	agent := &sessionAwareAgent{answer: "ok"}
+	mux := NewMux(Handlers{
+		Agent:  agent,
+		Ready:  func(context.Context) error { return nil },
+		Tracer: otel.Tracer("test"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewBufferString(`{"message":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if agent.lastSessionID == "" {
+		t.Fatal("agent lastSessionID is empty")
+	}
+	if got := rec.Header().Get("X-Session-Id"); got == "" {
+		t.Fatal("X-Session-Id header is empty")
+	} else if got != agent.lastSessionID {
+		t.Fatalf("X-Session-Id = %q, want %q", got, agent.lastSessionID)
 	}
 }
 
@@ -187,6 +240,28 @@ func (a *stubAgent) RunStream(_ context.Context, _ string) (<-chan agents.StepEv
 	return ch, nil
 }
 
+type sessionAwareAgent struct {
+	answer        string
+	lastSessionID string
+}
+
+func (a *sessionAwareAgent) Name() string { return "session-aware-agent" }
+
+func (a *sessionAwareAgent) Run(ctx context.Context, _ string) (agents.Result, error) {
+	a.lastSessionID = sessionstore.SessionIDFromContext(ctx)
+	return agents.Result{Answer: a.answer}, nil
+}
+
+func (a *sessionAwareAgent) RunStream(ctx context.Context, _ string) (<-chan agents.StepEvent, error) {
+	a.lastSessionID = sessionstore.SessionIDFromContext(ctx)
+	ch := make(chan agents.StepEvent, 1)
+	go func() {
+		defer close(ch)
+		ch <- agents.StepEvent{Done: true, Final: &agents.Result{Answer: a.answer}}
+	}()
+	return ch, nil
+}
+
 func TestStreamBody_IsLineDelimited(t *testing.T) {
 	mux := NewMux(Handlers{
 		Agent:  newStubAgent("delimited"),
@@ -211,4 +286,5 @@ func TestStreamBody_IsLineDelimited(t *testing.T) {
 }
 
 var _ agents.Agent = (*stubAgent)(nil)
+var _ agents.Agent = (*sessionAwareAgent)(nil)
 var _ llm.ChatModel = (*llm.ScriptedLLM)(nil)

@@ -3,10 +3,14 @@ package supportflow
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	agents "github.com/costa92/llm-agent"
+	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
 	"github.com/costa92/llm-agent/rag"
 )
@@ -103,7 +107,42 @@ func TestFlow_RunStreamEmitsFinal(t *testing.T) {
 	}
 }
 
-func newTestFlow(t *testing.T, model llm.ChatModel) agents.Agent {
+func TestFlow_SessionHistoryPersistsOutsideAgentInstances(t *testing.T) {
+	store, err := sessionstore.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := sessionstore.ContextWithSessionID(context.Background(), "session-1")
+	flow1 := newTestFlow(t, &contextAwareToolModel{}, withSessionStore(store))
+	res, err := flow1.Run(ctx, "I need a refund")
+	if err != nil {
+		t.Fatalf("Run() first error = %v", err)
+	}
+	if !strings.Contains(strings.ToLower(res.Answer), "order id") {
+		t.Fatalf("first answer = %q, want order ID clarification", res.Answer)
+	}
+
+	flow2 := newTestFlow(t, &contextAwareToolModel{}, withSessionStore(store))
+	res, err = flow2.Run(ctx, "it's 123")
+	if err != nil {
+		t.Fatalf("Run() second error = %v", err)
+	}
+	if !strings.Contains(res.Answer, "24h") {
+		t.Fatalf("second answer = %q, want refund policy using persisted history", res.Answer)
+	}
+}
+
+type testFlowOption func(*Options)
+
+func withSessionStore(store sessionstore.Store) testFlowOption {
+	return func(opts *Options) {
+		opts.Sessions = store
+	}
+}
+
+func newTestFlow(t *testing.T, model llm.ChatModel, opts ...testFlowOption) agents.Agent {
 	t.Helper()
 	store := rag.NewInMemoryStore(32)
 	system := rag.New(rag.Options{
@@ -116,12 +155,52 @@ func newTestFlow(t *testing.T, model llm.ChatModel) agents.Agent {
 	if err != nil {
 		t.Fatalf("AddText() error = %v", err)
 	}
-	flow, err := New(Options{
+	options := Options{
 		Model: model,
 		RAG:   system,
-	})
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	flow, err := New(options)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 	return flow
+}
+
+type contextAwareToolModel struct{}
+
+func (m *contextAwareToolModel) Generate(_ context.Context, req llm.Request) (llm.Response, error) {
+	if len(req.Messages) == 0 {
+		return llm.Response{}, fmt.Errorf("no messages")
+	}
+	prompt := strings.ToLower(req.Messages[0].Content)
+	if strings.Contains(prompt, "refund") && strings.Contains(prompt, "123") {
+		return llm.Response{
+			Provider: "context-aware",
+			ToolCalls: []llm.ToolCall{
+				{Name: "refund_policy", Arguments: json.RawMessage(`{"order_id":"123"}`)},
+			},
+		}, nil
+	}
+	return llm.TextResponse("missing prior context"), nil
+}
+
+func (m *contextAwareToolModel) Stream(_ context.Context, _ llm.Request) (llm.StreamReader, error) {
+	return nil, io.EOF
+}
+
+func (m *contextAwareToolModel) Info() llm.ProviderInfo {
+	return llm.ProviderInfo{
+		Provider: "context-aware",
+		Model:    "test",
+		Capabilities: llm.Capabilities{
+			Tools: true,
+		},
+	}
+}
+
+func (m *contextAwareToolModel) WithTools(_ []llm.Tool) (llm.ToolCaller, error) {
+	return m, nil
 }

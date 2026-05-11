@@ -9,10 +9,13 @@ import (
 	"strings"
 
 	agents "github.com/costa92/llm-agent"
+	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 )
 
 const traceHeader = "X-Trace-Id"
+const sessionHeader = "X-Session-Id"
 
 type ReadyFunc func(context.Context) error
 
@@ -23,12 +26,14 @@ type Handlers struct {
 }
 
 type ChatRequest struct {
-	Message string `json:"message"`
+	Message   string `json:"message"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type ChatResponse struct {
-	Answer string `json:"answer"`
-	Agent  string `json:"agent"`
+	Answer    string `json:"answer"`
+	Agent     string `json:"agent"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -87,15 +92,18 @@ func handleChat(agent agents.Agent, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := agent.Run(r.Context(), req.Message)
+	ctx := withRequestSession(w, r.Context(), req.SessionID)
+	res, err := agent.Run(ctx, req.Message)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	sessionID := ensureSessionID(w, ctx, req.SessionID)
 
 	writeJSON(w, http.StatusOK, ChatResponse{
-		Answer: res.Answer,
-		Agent:  agent.Name(),
+		Answer:    res.Answer,
+		Agent:     agent.Name(),
+		SessionID: sessionID,
 	})
 }
 
@@ -117,7 +125,8 @@ func handleStream(agent agents.Agent, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ch, err := agent.RunStream(r.Context(), req.Message)
+	ctx := withRequestSession(w, r.Context(), req.SessionID)
+	ch, err := agent.RunStream(ctx, req.Message)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -184,6 +193,27 @@ func decodeChatRequest(r *http.Request) (ChatRequest, error) {
 		return ChatRequest{}, errors.New("message is required")
 	}
 	return req, nil
+}
+
+func withRequestSession(w http.ResponseWriter, ctx context.Context, sessionID string) context.Context {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
+	w.Header().Set(sessionHeader, sessionID)
+	return sessionstore.ContextWithSessionID(ctx, sessionID)
+}
+
+func ensureSessionID(w http.ResponseWriter, ctx context.Context, requested string) string {
+	sessionID := strings.TrimSpace(requested)
+	if sessionID == "" {
+		sessionID = sessionstore.SessionIDFromContext(ctx)
+	}
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
+	w.Header().Set(sessionHeader, sessionID)
+	return sessionID
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

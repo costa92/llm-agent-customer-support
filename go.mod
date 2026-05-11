@@ -6,7 +6,9 @@ require (
 	github.com/costa92/llm-agent v0.3.0-pre.2
 	github.com/costa92/llm-agent-otel v0.1.0
 	github.com/costa92/llm-agent-providers v0.1.0
+	github.com/lib/pq v1.12.3
 	go.opentelemetry.io/otel/trace v1.43.0
+	modernc.org/sqlite v1.49.1
 )
 
 require (

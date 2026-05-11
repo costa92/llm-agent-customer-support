@@ -22,6 +22,8 @@ type Config struct {
 	Model             string
 	EmbeddingProvider string
 	EmbeddingModel    string
+	SessionBackend    string
+	SessionDSN        string
 	SystemPrompt      string
 	ServiceName       string
 	ShutdownTimeout   time.Duration
@@ -45,6 +47,7 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
 		HTTPAddr:         envOrDefault(lookup, "HTTP_ADDR", ":8080"),
 		Provider:         strings.ToLower(envOrDefault(lookup, "LLM_PROVIDER", ProviderOllama)),
+		SessionBackend:   strings.ToLower(envOrDefault(lookup, "SESSION_BACKEND", "sqlite")),
 		SystemPrompt:     envOrDefault(lookup, "SYSTEM_PROMPT", defaultSystemPrompt),
 		ServiceName:      envOrDefault(lookup, "OTEL_SERVICE_NAME", "llm-agent-customer-support"),
 		OTLPProtocol:     strings.ToLower(envOrDefault(lookup, "OTEL_EXPORTER_OTLP_PROTOCOL", "http")),
@@ -62,6 +65,11 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("LLM_PROVIDER %q is invalid", cfg.Provider)
 	}
+	switch cfg.SessionBackend {
+	case "sqlite", "postgres":
+	default:
+		return Config{}, fmt.Errorf("SESSION_BACKEND %q is invalid", cfg.SessionBackend)
+	}
 	cfg.EmbeddingProvider = strings.ToLower(envOrDefault(lookup, "EMBEDDING_PROVIDER", defaultEmbeddingProviderForProvider(cfg.Provider)))
 	switch cfg.EmbeddingProvider {
 	case ProviderOpenAI, ProviderAnthropic, ProviderOllama:
@@ -71,6 +79,7 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 
 	cfg.Model = envOrDefault(lookup, "LLM_MODEL", defaultModelForProvider(cfg.Provider))
 	cfg.EmbeddingModel = envOrDefault(lookup, "EMBEDDING_MODEL", defaultEmbeddingModelForProvider(cfg.EmbeddingProvider))
+	cfg.SessionDSN = envOrDefault(lookup, "SESSION_DSN", defaultSessionDSNForBackend(cfg.SessionBackend))
 	cfg.ShutdownTimeout = envDurationOrDefault(lookup, "SHUTDOWN_TIMEOUT", 5*time.Second)
 	return cfg, nil
 }
@@ -104,6 +113,13 @@ func defaultEmbeddingModelForProvider(provider string) string {
 	default:
 		return "nomic-embed-text"
 	}
+}
+
+func defaultSessionDSNForBackend(backend string) string {
+	if backend == "postgres" {
+		return "postgres://localhost:5432/llm_agent_customer_support?sslmode=disable"
+	}
+	return "file:support_sessions.db?_pragma=journal_mode(WAL)"
 }
 
 func envOrDefault(lookup func(string) (string, bool), key, fallback string) string {

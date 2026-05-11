@@ -8,22 +8,27 @@ import (
 	"strings"
 
 	agents "github.com/costa92/llm-agent"
+	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
 	"github.com/costa92/llm-agent/orchestrate"
 	"github.com/costa92/llm-agent/rag"
 )
 
 type Options struct {
-	Model llm.ChatModel
-	RAG   *rag.RAGSystem
+	Model    llm.ChatModel
+	RAG      *rag.RAGSystem
+	Sessions sessionstore.Store
 }
 
 type flow struct {
 	graph       *orchestrate.CompiledGraph[state]
 	selfService agents.Agent
+	sessions    sessionstore.Store
 }
 
 type state struct {
+	SessionID    string
+	History      []sessionstore.Message
 	Question     string
 	OrderID      string
 	NeedMoreInfo bool
@@ -46,7 +51,7 @@ func New(opts Options) (agents.Agent, error) {
 		return nil, err
 	}
 
-	graph, err := buildGraph(selfService)
+	graph, err := buildGraph(selfService, opts.Sessions)
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +59,7 @@ func New(opts Options) (agents.Agent, error) {
 	return &flow{
 		graph:       graph,
 		selfService: selfService,
+		sessions:    opts.Sessions,
 	}, nil
 }
 
@@ -81,6 +87,9 @@ func (f *flow) run(ctx context.Context, input string, onStep func(agents.Step)) 
 	if err != nil {
 		return agents.Result{}, err
 	}
+	if err := f.persistSession(ctx, out); err != nil {
+		return agents.Result{}, err
+	}
 
 	final := agents.Step{Kind: agents.StepFinal, Content: out.Answer}
 	onStep(final)
@@ -91,8 +100,27 @@ func (f *flow) run(ctx context.Context, input string, onStep func(agents.Step)) 
 	}, nil
 }
 
-func buildGraph(selfService agents.Agent) (*orchestrate.CompiledGraph[state], error) {
+func buildGraph(selfService agents.Agent, sessions sessionstore.Store) (*orchestrate.CompiledGraph[state], error) {
 	g := orchestrate.NewStateGraph[state]()
+	g.AddNode("load-session", func(ctx context.Context, s state) (state, error) {
+		s.SessionID = sessionstore.SessionIDFromContext(ctx)
+		if s.SessionID == "" || sessions == nil {
+			return s, nil
+		}
+		session, err := sessions.Get(ctx, s.SessionID)
+		if err != nil {
+			if errors.Is(err, sessionstore.ErrNotFound) {
+				return s, nil
+			}
+			return s, err
+		}
+		s.History = session.Messages
+		s.Question = strings.TrimSpace(s.Question)
+		if s.Question != "" {
+			s.Question = mergeQuestionWithHistory(session.Messages, s.Question)
+		}
+		return s, nil
+	})
 	g.AddNode("classify", func(_ context.Context, s state) (state, error) {
 		q := strings.ToLower(s.Question)
 		s.OrderID = extractOrderID(q)
@@ -122,7 +150,8 @@ func buildGraph(selfService agents.Agent) (*orchestrate.CompiledGraph[state], er
 		return s, nil
 	})
 
-	g.AddEdge(orchestrate.NodeStart, "classify")
+	g.AddEdge(orchestrate.NodeStart, "load-session")
+	g.AddEdge("load-session", "classify")
 	g.AddConditionalEdge("classify", func(s state) string {
 		switch {
 		case s.NeedsHuman:
@@ -137,6 +166,52 @@ func buildGraph(selfService agents.Agent) (*orchestrate.CompiledGraph[state], er
 	g.AddEdge("handover-human", orchestrate.NodeEnd)
 	g.AddEdge("self-service", orchestrate.NodeEnd)
 	return g.Compile()
+}
+
+func (f *flow) persistSession(ctx context.Context, s state) error {
+	if f.sessions == nil || s.SessionID == "" {
+		return nil
+	}
+	history := append([]sessionstore.Message(nil), s.History...)
+	history = append(history,
+		sessionstore.Message{Role: "user", Content: originalQuestionFromMerged(s.Question)},
+		sessionstore.Message{Role: "assistant", Content: s.Answer},
+	)
+	return f.sessions.Save(ctx, sessionstore.Session{
+		ID:       s.SessionID,
+		Messages: history,
+	})
+}
+
+func mergeQuestionWithHistory(history []sessionstore.Message, question string) string {
+	if len(history) == 0 {
+		return question
+	}
+	var b strings.Builder
+	for _, msg := range history {
+		if strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		b.WriteString(msg.Role)
+		b.WriteString(": ")
+		b.WriteString(msg.Content)
+		b.WriteString("\n")
+	}
+	b.WriteString("user: ")
+	b.WriteString(question)
+	return b.String()
+}
+
+func originalQuestionFromMerged(question string) string {
+	lines := strings.Split(strings.TrimSpace(question), "\n")
+	if len(lines) == 0 {
+		return question
+	}
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if strings.HasPrefix(strings.ToLower(last), "user: ") {
+		return strings.TrimSpace(last[len("user: "):])
+	}
+	return question
 }
 
 func refundPolicyTool(r *rag.RAGSystem) agents.Tool {

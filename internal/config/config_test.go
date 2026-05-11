@@ -28,6 +28,12 @@ func TestLoadFromLookup_Defaults(t *testing.T) {
 	if cfg.EmbeddingModel != "nomic-embed-text" {
 		t.Fatalf("EmbeddingModel = %q, want %q", cfg.EmbeddingModel, "nomic-embed-text")
 	}
+	if cfg.SessionBackend != "sqlite" {
+		t.Fatalf("SessionBackend = %q, want %q", cfg.SessionBackend, "sqlite")
+	}
+	if cfg.SessionDSN == "" {
+		t.Fatal("SessionDSN is empty")
+	}
 	if cfg.SystemPrompt == "" {
 		t.Fatal("SystemPrompt is empty, want default prompt")
 	}
@@ -97,5 +103,20 @@ func TestLoadFromLookup_InvalidEmbeddingProvider(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "EMBEDDING_PROVIDER") {
 		t.Fatalf("LoadFromLookup() error = %q, want mention of EMBEDDING_PROVIDER", err)
+	}
+}
+
+func TestLoadFromLookup_InvalidSessionBackend(t *testing.T) {
+	_, err := LoadFromLookup(func(key string) (string, bool) {
+		if key == "SESSION_BACKEND" {
+			return "bogus", true
+		}
+		return "", false
+	})
+	if err == nil {
+		t.Fatal("LoadFromLookup() error = nil, want invalid session backend error")
+	}
+	if !strings.Contains(err.Error(), "SESSION_BACKEND") {
+		t.Fatalf("LoadFromLookup() error = %q, want mention of SESSION_BACKEND", err)
 	}
 }

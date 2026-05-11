@@ -11,6 +11,7 @@ import (
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/config"
+	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -77,6 +78,7 @@ func TestNew_BuildsRunnableAgent(t *testing.T) {
 				llm.WithEmbedDimensions(8),
 			), nil
 		}),
+		WithSessionStoreFactory(newTestSessionStoreFactory(t)),
 		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
 			return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
 		}),
@@ -188,6 +190,7 @@ func TestRun_ShutsDownTracerProviderOnCancel(t *testing.T) {
 				llm.WithEmbedDimensions(8),
 			), nil
 		}),
+		WithSessionStoreFactory(newTestSessionStoreFactory(t)),
 		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
 			return tracker, nil
 		}),
@@ -249,6 +252,7 @@ func TestNew_RegistersTransportRoutes(t *testing.T) {
 				llm.WithEmbedDimensions(8),
 			), nil
 		}),
+		WithSessionStoreFactory(newTestSessionStoreFactory(t)),
 		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
 			return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
 		}),
@@ -309,6 +313,7 @@ func TestNew_MissingOrderIDRequestsMoreInfo(t *testing.T) {
 				llm.WithEmbedDimensions(8),
 			), nil
 		}),
+		WithSessionStoreFactory(newTestSessionStoreFactory(t)),
 		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
 			return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
 		}),
@@ -352,6 +357,7 @@ func TestNew_ChargebackEscalatesToHuman(t *testing.T) {
 				llm.WithEmbedDimensions(8),
 			), nil
 		}),
+		WithSessionStoreFactory(newTestSessionStoreFactory(t)),
 		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
 			return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
 		}),
@@ -377,6 +383,13 @@ type shutdownTracker struct {
 func (s *shutdownTracker) Shutdown(context.Context) error {
 	s.shutdownCalled = true
 	return nil
+}
+
+func newTestSessionStoreFactory(t *testing.T) SessionStoreFactory {
+	t.Helper()
+	return func(context.Context, config.Config) (sessionstore.Store, error) {
+		return sessionstore.OpenSQLite(context.Background(), "file::memory:?cache=shared")
+	}
 }
 
 var _ TracerProvider = (*shutdownTracker)(nil)

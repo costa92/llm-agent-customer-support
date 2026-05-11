@@ -9,6 +9,7 @@ import (
 	"github.com/costa92/llm-agent-customer-support/internal/config"
 	"github.com/costa92/llm-agent-customer-support/internal/httpapi"
 	"github.com/costa92/llm-agent-customer-support/internal/providers"
+	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent-customer-support/internal/supportflow"
 	otelroot "github.com/costa92/llm-agent-otel"
 	"github.com/costa92/llm-agent-otel/otelagent"
@@ -25,11 +26,13 @@ type TracerProvider interface {
 
 type ModelFactory func(config.Config) (llm.ChatModel, error)
 type EmbedderFactory func(config.Config) (llm.Embedder, error)
+type SessionStoreFactory func(context.Context, config.Config) (sessionstore.Store, error)
 type TracerProviderFactory func(context.Context, config.Config) (TracerProvider, error)
 
 type Options struct {
 	ModelFactory          ModelFactory
 	EmbedderFactory       EmbedderFactory
+	SessionStoreFactory   SessionStoreFactory
 	TracerProviderFactory TracerProviderFactory
 }
 
@@ -43,6 +46,10 @@ func WithEmbedderFactory(factory EmbedderFactory) Option {
 	return func(o *Options) { o.EmbedderFactory = factory }
 }
 
+func WithSessionStoreFactory(factory SessionStoreFactory) Option {
+	return func(o *Options) { o.SessionStoreFactory = factory }
+}
+
 func WithTracerProviderFactory(factory TracerProviderFactory) Option {
 	return func(o *Options) { o.TracerProviderFactory = factory }
 }
@@ -54,6 +61,7 @@ type App struct {
 	agent    agents.Agent
 	model    llm.ChatModel
 	embedder llm.Embedder
+	sessions sessionstore.Store
 	mux      *http.ServeMux
 }
 
@@ -61,6 +69,7 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 	options := Options{
 		ModelFactory:          DefaultModelFactory,
 		EmbedderFactory:       DefaultEmbedderFactory,
+		SessionStoreFactory:   defaultSessionStoreFactory,
 		TracerProviderFactory: defaultTracerProviderFactory,
 	}
 	for _, opt := range opts {
@@ -75,22 +84,30 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	sessions, err := options.SessionStoreFactory(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
 	tp, err := options.TracerProviderFactory(ctx, cfg)
 	if err != nil {
+		_ = sessions.Close()
 		return nil, err
 	}
 
 	wrappedModel := otelmodel.Wrap(model, otelmodel.Config{TracerProvider: tp})
 	knowledge, err := newKnowledgeBase(ctx, embedder)
 	if err != nil {
+		_ = sessions.Close()
 		_ = tp.Shutdown(context.Background())
 		return nil, err
 	}
 	agent, err := supportflow.New(supportflow.Options{
-		Model: wrappedModel,
-		RAG:   knowledge,
+		Model:    wrappedModel,
+		RAG:      knowledge,
+		Sessions: sessions,
 	})
 	if err != nil {
+		_ = sessions.Close()
 		_ = tp.Shutdown(context.Background())
 		return nil, err
 	}
@@ -112,6 +129,7 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 		agent:    wrappedAgent,
 		model:    wrappedModel,
 		embedder: embedder,
+		sessions: sessions,
 		mux:      mux,
 	}, nil
 }
@@ -161,6 +179,11 @@ func (a *App) shutdown(ctx context.Context) error {
 	if err := a.tp.Shutdown(shutdownCtx); err != nil && firstErr == nil {
 		firstErr = err
 	}
+	if a.sessions != nil {
+		if err := a.sessions.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 	return firstErr
 }
 
@@ -182,6 +205,13 @@ func defaultTracerProviderFactory(ctx context.Context, cfg config.Config) (Trace
 		return nil, err
 	}
 	return tp, nil
+}
+
+func defaultSessionStoreFactory(ctx context.Context, cfg config.Config) (sessionstore.Store, error) {
+	if cfg.SessionBackend == "postgres" {
+		return sessionstore.OpenPostgres(ctx, cfg.SessionDSN)
+	}
+	return sessionstore.OpenSQLite(ctx, cfg.SessionDSN)
 }
 
 type ragEmbedderAdapter struct {
