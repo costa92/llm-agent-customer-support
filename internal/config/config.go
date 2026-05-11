@@ -17,12 +17,14 @@ const (
 const defaultSystemPrompt = "You are a helpful customer-support assistant. Be concise, factual, and safe."
 
 type Config struct {
-	HTTPAddr        string
-	Provider        string
-	Model           string
-	SystemPrompt    string
-	ServiceName     string
-	ShutdownTimeout time.Duration
+	HTTPAddr          string
+	Provider          string
+	Model             string
+	EmbeddingProvider string
+	EmbeddingModel    string
+	SystemPrompt      string
+	ServiceName       string
+	ShutdownTimeout   time.Duration
 
 	OTLPProtocol string
 	OTLPEndpoint string
@@ -60,8 +62,15 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("LLM_PROVIDER %q is invalid", cfg.Provider)
 	}
+	cfg.EmbeddingProvider = strings.ToLower(envOrDefault(lookup, "EMBEDDING_PROVIDER", defaultEmbeddingProviderForProvider(cfg.Provider)))
+	switch cfg.EmbeddingProvider {
+	case ProviderOpenAI, ProviderAnthropic, ProviderOllama:
+	default:
+		return Config{}, fmt.Errorf("EMBEDDING_PROVIDER %q is invalid", cfg.EmbeddingProvider)
+	}
 
 	cfg.Model = envOrDefault(lookup, "LLM_MODEL", defaultModelForProvider(cfg.Provider))
+	cfg.EmbeddingModel = envOrDefault(lookup, "EMBEDDING_MODEL", defaultEmbeddingModelForProvider(cfg.EmbeddingProvider))
 	cfg.ShutdownTimeout = envDurationOrDefault(lookup, "SHUTDOWN_TIMEOUT", 5*time.Second)
 	return cfg, nil
 }
@@ -74,6 +83,26 @@ func defaultModelForProvider(provider string) string {
 		return "claude-3-5-haiku-20241022"
 	default:
 		return "llama3.1:8b"
+	}
+}
+
+func defaultEmbeddingProviderForProvider(provider string) string {
+	switch provider {
+	case ProviderAnthropic:
+		return ProviderOpenAI
+	default:
+		return ProviderOllama
+	}
+}
+
+func defaultEmbeddingModelForProvider(provider string) string {
+	switch provider {
+	case ProviderOpenAI:
+		return "text-embedding-3-small"
+	case ProviderAnthropic:
+		return "unsupported"
+	default:
+		return "nomic-embed-text"
 	}
 }
 

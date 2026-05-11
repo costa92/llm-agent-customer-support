@@ -22,6 +22,12 @@ func TestLoadFromLookup_Defaults(t *testing.T) {
 	if cfg.Model != "llama3.1:8b" {
 		t.Fatalf("Model = %q, want %q", cfg.Model, "llama3.1:8b")
 	}
+	if cfg.EmbeddingProvider != ProviderOllama {
+		t.Fatalf("EmbeddingProvider = %q, want %q", cfg.EmbeddingProvider, ProviderOllama)
+	}
+	if cfg.EmbeddingModel != "nomic-embed-text" {
+		t.Fatalf("EmbeddingModel = %q, want %q", cfg.EmbeddingModel, "nomic-embed-text")
+	}
 	if cfg.SystemPrompt == "" {
 		t.Fatal("SystemPrompt is empty, want default prompt")
 	}
@@ -47,6 +53,8 @@ func TestLoadFromLookup_ProviderSpecificDefaults(t *testing.T) {
 		switch key {
 		case "LLM_PROVIDER":
 			return ProviderAnthropic, true
+		case "EMBEDDING_PROVIDER":
+			return ProviderOpenAI, true
 		default:
 			return "", false
 		}
@@ -56,6 +64,9 @@ func TestLoadFromLookup_ProviderSpecificDefaults(t *testing.T) {
 	}
 	if cfg.Model != "claude-3-5-haiku-20241022" {
 		t.Fatalf("Model = %q, want %q", cfg.Model, "claude-3-5-haiku-20241022")
+	}
+	if cfg.EmbeddingModel != "text-embedding-3-small" {
+		t.Fatalf("EmbeddingModel = %q, want %q", cfg.EmbeddingModel, "text-embedding-3-small")
 	}
 }
 
@@ -71,5 +82,20 @@ func TestLoadFromLookup_InvalidProvider(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "LLM_PROVIDER") {
 		t.Fatalf("LoadFromLookup() error = %q, want mention of LLM_PROVIDER", err)
+	}
+}
+
+func TestLoadFromLookup_InvalidEmbeddingProvider(t *testing.T) {
+	_, err := LoadFromLookup(func(key string) (string, bool) {
+		if key == "EMBEDDING_PROVIDER" {
+			return "bogus", true
+		}
+		return "", false
+	})
+	if err == nil {
+		t.Fatal("LoadFromLookup() error = nil, want invalid embedding provider error")
+	}
+	if !strings.Contains(err.Error(), "EMBEDDING_PROVIDER") {
+		t.Fatalf("LoadFromLookup() error = %q, want mention of EMBEDDING_PROVIDER", err)
 	}
 }

@@ -3,18 +3,15 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/config"
 	"github.com/costa92/llm-agent-customer-support/internal/httpapi"
+	"github.com/costa92/llm-agent-customer-support/internal/providers"
 	otelroot "github.com/costa92/llm-agent-otel"
 	"github.com/costa92/llm-agent-otel/otelagent"
 	"github.com/costa92/llm-agent-otel/otelmodel"
-	anthropicprovider "github.com/costa92/llm-agent-providers/anthropic"
-	ollamaprovider "github.com/costa92/llm-agent-providers/ollama"
-	openaiprovider "github.com/costa92/llm-agent-providers/openai"
 	"github.com/costa92/llm-agent/llm"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -25,10 +22,12 @@ type TracerProvider interface {
 }
 
 type ModelFactory func(config.Config) (llm.ChatModel, error)
+type EmbedderFactory func(config.Config) (llm.Embedder, error)
 type TracerProviderFactory func(context.Context, config.Config) (TracerProvider, error)
 
 type Options struct {
 	ModelFactory          ModelFactory
+	EmbedderFactory       EmbedderFactory
 	TracerProviderFactory TracerProviderFactory
 }
 
@@ -38,22 +37,28 @@ func WithModelFactory(factory ModelFactory) Option {
 	return func(o *Options) { o.ModelFactory = factory }
 }
 
+func WithEmbedderFactory(factory EmbedderFactory) Option {
+	return func(o *Options) { o.EmbedderFactory = factory }
+}
+
 func WithTracerProviderFactory(factory TracerProviderFactory) Option {
 	return func(o *Options) { o.TracerProviderFactory = factory }
 }
 
 type App struct {
-	cfg    config.Config
-	server *http.Server
-	tp     TracerProvider
-	agent  agents.Agent
-	model  llm.ChatModel
-	mux    *http.ServeMux
+	cfg      config.Config
+	server   *http.Server
+	tp       TracerProvider
+	agent    agents.Agent
+	model    llm.ChatModel
+	embedder llm.Embedder
+	mux      *http.ServeMux
 }
 
 func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 	options := Options{
 		ModelFactory:          DefaultModelFactory,
+		EmbedderFactory:       DefaultEmbedderFactory,
 		TracerProviderFactory: defaultTracerProviderFactory,
 	}
 	for _, opt := range opts {
@@ -61,6 +66,10 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 	}
 
 	model, err := options.ModelFactory(cfg)
+	if err != nil {
+		return nil, err
+	}
+	embedder, err := options.EmbedderFactory(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -88,10 +97,11 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 			Addr:    cfg.HTTPAddr,
 			Handler: mux,
 		},
-		tp:    tp,
-		agent: wrappedAgent,
-		model: wrappedModel,
-		mux:   mux,
+		tp:       tp,
+		agent:    wrappedAgent,
+		model:    wrappedModel,
+		embedder: embedder,
+		mux:      mux,
 	}, nil
 }
 
@@ -122,6 +132,13 @@ func (a *App) Agent() agents.Agent { return a.agent }
 
 func (a *App) ModelInfo() llm.ProviderInfo { return a.model.Info() }
 
+func (a *App) EmbeddingInfo() llm.ProviderInfo {
+	if infoProvider, ok := a.embedder.(interface{ Info() llm.ProviderInfo }); ok {
+		return infoProvider.Info()
+	}
+	return llm.ProviderInfo{}
+}
+
 func (a *App) shutdown(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(ctx, a.cfg.ShutdownTimeout)
 	defer cancel()
@@ -137,28 +154,11 @@ func (a *App) shutdown(ctx context.Context) error {
 }
 
 func DefaultModelFactory(cfg config.Config) (llm.ChatModel, error) {
-	switch cfg.Provider {
-	case config.ProviderOpenAI:
-		return openaiprovider.New(
-			openaiprovider.WithModel(cfg.Model),
-			openaiprovider.WithAPIKey(cfg.OpenAIAPIKey),
-			openaiprovider.WithBaseURL(cfg.OpenAIBaseURL),
-		)
-	case config.ProviderAnthropic:
-		return anthropicprovider.New(
-			anthropicprovider.WithModel(cfg.Model),
-			anthropicprovider.WithAPIKey(cfg.AnthropicAPIKey),
-			anthropicprovider.WithBaseURL(cfg.AnthropicBaseURL),
-		)
-	case config.ProviderOllama:
-		opts := []ollamaprovider.Option{ollamaprovider.WithModel(cfg.Model)}
-		if cfg.OllamaBaseURL != "" {
-			opts = append(opts, ollamaprovider.WithBaseURL(cfg.OllamaBaseURL))
-		}
-		return ollamaprovider.New(opts...)
-	default:
-		return nil, fmt.Errorf("unsupported provider %q", cfg.Provider)
-	}
+	return providers.NewChatModel(cfg)
+}
+
+func DefaultEmbedderFactory(cfg config.Config) (llm.Embedder, error) {
+	return providers.NewEmbedder(cfg)
 }
 
 func defaultTracerProviderFactory(ctx context.Context, cfg config.Config) (TracerProvider, error) {

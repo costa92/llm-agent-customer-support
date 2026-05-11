@@ -52,22 +52,34 @@ func TestDefaultModelFactory_SelectsProvider(t *testing.T) {
 
 func TestNew_BuildsRunnableAgent(t *testing.T) {
 	cfg := config.Config{
-		HTTPAddr:        "127.0.0.1:0",
-		Provider:        config.ProviderOllama,
-		Model:           "scripted-support",
-		SystemPrompt:    "You are support",
-		ShutdownTimeout: 200 * time.Millisecond,
+		HTTPAddr:          "127.0.0.1:0",
+		Provider:          config.ProviderOllama,
+		Model:             "scripted-support",
+		EmbeddingProvider: config.ProviderOpenAI,
+		EmbeddingModel:    "scripted-embed",
+		SystemPrompt:      "You are support",
+		ShutdownTimeout:   200 * time.Millisecond,
 	}
 
-	app, err := New(context.Background(), cfg, WithModelFactory(func(config.Config) (llm.ChatModel, error) {
-		return llm.NewScriptedLLM(
-			llm.WithProvider("scripted"),
-			llm.WithModel("scripted-support"),
-			llm.WithResponses(llm.TextResponse("hello from support")),
-		), nil
-	}), WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
-		return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
-	}))
+	app, err := New(context.Background(), cfg,
+		WithModelFactory(func(config.Config) (llm.ChatModel, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted"),
+				llm.WithModel("scripted-support"),
+				llm.WithResponses(llm.TextResponse("hello from support")),
+			), nil
+		}),
+		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted-embed"),
+				llm.WithModel("scripted-embed"),
+				llm.WithEmbedDimensions(8),
+			), nil
+		}),
+		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
+			return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
+		}),
+	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -85,27 +97,97 @@ func TestNew_BuildsRunnableAgent(t *testing.T) {
 	if app.ModelInfo().Provider != "scripted" {
 		t.Fatalf("ModelInfo().Provider = %q, want %q", app.ModelInfo().Provider, "scripted")
 	}
+	if app.EmbeddingInfo().Provider != "scripted-embed" {
+		t.Fatalf("EmbeddingInfo().Provider = %q, want %q", app.EmbeddingInfo().Provider, "scripted-embed")
+	}
+	if app.EmbeddingInfo().Model != "scripted-embed" {
+		t.Fatalf("EmbeddingInfo().Model = %q, want %q", app.EmbeddingInfo().Model, "scripted-embed")
+	}
+}
+
+func TestDefaultEmbedderFactory_SelectsProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		model    string
+	}{
+		{name: "openai", provider: config.ProviderOpenAI, model: "text-embedding-3-small"},
+		{name: "ollama", provider: config.ProviderOllama, model: "nomic-embed-text"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			embedder, err := DefaultEmbedderFactory(config.Config{
+				EmbeddingProvider: tc.provider,
+				EmbeddingModel:    tc.model,
+				OpenAIBaseURL:     "http://example.com",
+				OllamaBaseURL:     "http://example.com",
+			})
+			if err != nil {
+				t.Fatalf("DefaultEmbedderFactory() error = %v", err)
+			}
+			infoProvider, ok := embedder.(interface{ Info() llm.ProviderInfo })
+			if !ok {
+				t.Fatal("embedder does not expose Info()")
+			}
+			info := infoProvider.Info()
+			if info.Provider != tc.provider {
+				t.Fatalf("Info().Provider = %q, want %q", info.Provider, tc.provider)
+			}
+			if info.Model != tc.model {
+				t.Fatalf("Info().Model = %q, want %q", info.Model, tc.model)
+			}
+			if !info.Capabilities.Embeddings {
+				t.Fatal("Info().Capabilities.Embeddings = false, want true")
+			}
+		})
+	}
+}
+
+func TestDefaultEmbedderFactory_RejectsUnsupportedProvider(t *testing.T) {
+	_, err := DefaultEmbedderFactory(config.Config{
+		EmbeddingProvider: config.ProviderAnthropic,
+		EmbeddingModel:    "claude-3-5-haiku-20241022",
+	})
+	if err == nil {
+		t.Fatal("DefaultEmbedderFactory() error = nil, want unsupported provider error")
+	}
+	if !strings.Contains(err.Error(), "embedding provider") {
+		t.Fatalf("DefaultEmbedderFactory() error = %q, want mention of embedding provider", err)
+	}
 }
 
 func TestRun_ShutsDownTracerProviderOnCancel(t *testing.T) {
 	tracker := &shutdownTracker{TracerProvider: noop.NewTracerProvider()}
 	cfg := config.Config{
-		HTTPAddr:        "127.0.0.1:0",
-		Provider:        config.ProviderOllama,
-		Model:           "scripted-support",
-		SystemPrompt:    "You are support",
-		ShutdownTimeout: 500 * time.Millisecond,
+		HTTPAddr:          "127.0.0.1:0",
+		Provider:          config.ProviderOllama,
+		Model:             "scripted-support",
+		EmbeddingProvider: config.ProviderOllama,
+		EmbeddingModel:    "scripted-embed",
+		SystemPrompt:      "You are support",
+		ShutdownTimeout:   500 * time.Millisecond,
 	}
 
-	app, err := New(context.Background(), cfg, WithModelFactory(func(config.Config) (llm.ChatModel, error) {
-		return llm.NewScriptedLLM(
-			llm.WithProvider("scripted"),
-			llm.WithModel("scripted-support"),
-			llm.WithResponses(llm.TextResponse("ok")),
-		), nil
-	}), WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
-		return tracker, nil
-	}))
+	app, err := New(context.Background(), cfg,
+		WithModelFactory(func(config.Config) (llm.ChatModel, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted"),
+				llm.WithModel("scripted-support"),
+				llm.WithResponses(llm.TextResponse("ok")),
+			), nil
+		}),
+		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted-embed"),
+				llm.WithModel("scripted-embed"),
+				llm.WithEmbedDimensions(8),
+			), nil
+		}),
+		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
+			return tracker, nil
+		}),
+	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -135,22 +217,34 @@ func TestRun_ShutsDownTracerProviderOnCancel(t *testing.T) {
 
 func TestNew_RegistersTransportRoutes(t *testing.T) {
 	cfg := config.Config{
-		HTTPAddr:        "127.0.0.1:0",
-		Provider:        config.ProviderOllama,
-		Model:           "scripted-support",
-		SystemPrompt:    "You are support",
-		ShutdownTimeout: 200 * time.Millisecond,
+		HTTPAddr:          "127.0.0.1:0",
+		Provider:          config.ProviderOllama,
+		Model:             "scripted-support",
+		EmbeddingProvider: config.ProviderOpenAI,
+		EmbeddingModel:    "scripted-embed",
+		SystemPrompt:      "You are support",
+		ShutdownTimeout:   200 * time.Millisecond,
 	}
 
-	app, err := New(context.Background(), cfg, WithModelFactory(func(config.Config) (llm.ChatModel, error) {
-		return llm.NewScriptedLLM(
-			llm.WithProvider("scripted"),
-			llm.WithModel("scripted-support"),
-			llm.WithResponses(llm.TextResponse("route answer"), llm.TextResponse("stream answer")),
-		), nil
-	}), WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
-		return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
-	}))
+	app, err := New(context.Background(), cfg,
+		WithModelFactory(func(config.Config) (llm.ChatModel, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted"),
+				llm.WithModel("scripted-support"),
+				llm.WithResponses(llm.TextResponse("route answer"), llm.TextResponse("stream answer")),
+			), nil
+		}),
+		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted-embed"),
+				llm.WithModel("scripted-embed"),
+				llm.WithEmbedDimensions(8),
+			), nil
+		}),
+		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
+			return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
+		}),
+	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
