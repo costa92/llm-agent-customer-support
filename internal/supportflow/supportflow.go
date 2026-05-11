@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	agents "github.com/costa92/llm-agent"
+	"github.com/costa92/llm-agent-customer-support/internal/guardrails"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
 	"github.com/costa92/llm-agent/orchestrate"
@@ -15,15 +16,17 @@ import (
 )
 
 type Options struct {
-	Model    llm.ChatModel
-	RAG      *rag.RAGSystem
-	Sessions sessionstore.Store
+	Model      llm.ChatModel
+	RAG        *rag.RAGSystem
+	Sessions   sessionstore.Store
+	Guardrails *guardrails.Guardrails
 }
 
 type flow struct {
 	graph       *orchestrate.CompiledGraph[state]
 	selfService agents.Agent
 	sessions    sessionstore.Store
+	guardrails  *guardrails.Guardrails
 }
 
 type state struct {
@@ -42,10 +45,14 @@ func New(opts Options) (agents.Agent, error) {
 	}
 
 	reg := agents.NewRegistry(refundPolicyTool(opts.RAG))
+	systemPrompt := "Use the available tools to answer refund and policy questions. Prefer the refund_policy tool when an order ID is present."
+	if opts.Guardrails != nil {
+		systemPrompt = opts.Guardrails.SystemPromptPrefix() + "\n\n" + systemPrompt
+	}
 	selfService, err := agents.NewFunctionCallAgent(opts.Model, agents.FunctionCallOptions{
 		Name:         "support-self-service",
 		Registry:     reg,
-		SystemPrompt: "Use the available tools to answer refund and policy questions. Prefer the refund_policy tool when an order ID is present.",
+		SystemPrompt: systemPrompt,
 	})
 	if err != nil {
 		return nil, err
@@ -60,6 +67,7 @@ func New(opts Options) (agents.Agent, error) {
 		graph:       graph,
 		selfService: selfService,
 		sessions:    opts.Sessions,
+		guardrails:  opts.Guardrails,
 	}, nil
 }
 
@@ -81,6 +89,16 @@ func (f *flow) run(ctx context.Context, input string, onStep func(agents.Step)) 
 	}
 	if onStep == nil {
 		onStep = func(agents.Step) {}
+	}
+	if ok, _ := f.allowInput(input); !ok {
+		answer := f.guardrails.SafeFallback()
+		final := agents.Step{Kind: agents.StepFinal, Content: answer}
+		onStep(final)
+		return agents.Result{
+			Answer: answer,
+			Trace:  []agents.Step{final},
+			Usage:  agents.Usage{},
+		}, nil
 	}
 
 	out, err := f.graph.Run(ctx, state{Question: input}, orchestrate.WithMaxSteps(8))
@@ -222,9 +240,13 @@ func refundPolicyTool(r *rag.RAGSystem) agents.Tool {
 		func(ctx context.Context, args json.RawMessage) (string, error) {
 			var req struct {
 				OrderID string `json:"order_id"`
+				UserID  string `json:"user_id"`
 			}
 			if err := json.Unmarshal(args, &req); err != nil {
 				return "", fmt.Errorf("refund_policy: bad args: %w", err)
+			}
+			if strings.TrimSpace(req.UserID) != "" {
+				return "", errors.New("refund_policy: user_id must be enforced server-side")
 			}
 			if strings.TrimSpace(req.OrderID) == "" {
 				return "", errors.New("refund_policy: order_id is required")
@@ -239,6 +261,13 @@ func refundPolicyTool(r *rag.RAGSystem) agents.Tool {
 			return fmt.Sprintf("Refund guidance for order %s: %s", req.OrderID, hits[0].Doc.Content), nil
 		},
 	)
+}
+
+func (f *flow) allowInput(input string) (bool, string) {
+	if f.guardrails == nil {
+		return true, ""
+	}
+	return f.guardrails.FilterInput(input)
 }
 
 func extractOrderID(input string) string {
