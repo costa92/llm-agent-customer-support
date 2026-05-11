@@ -66,7 +66,8 @@ func TestNew_BuildsRunnableAgent(t *testing.T) {
 			return llm.NewScriptedLLM(
 				llm.WithProvider("scripted"),
 				llm.WithModel("scripted-support"),
-				llm.WithResponses(llm.TextResponse("hello from support")),
+				llm.WithCapabilities(llm.Capabilities{Tools: true, Embeddings: true}),
+				llm.WithResponses(llm.ToolCallResponse("refund_policy", `{"order_id":"123"}`)),
 			), nil
 		}),
 		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
@@ -87,12 +88,15 @@ func TestNew_BuildsRunnableAgent(t *testing.T) {
 	if app.Agent() == nil {
 		t.Fatal("Agent() = nil, want runnable agent")
 	}
-	res, err := app.Agent().Run(context.Background(), "hi")
+	res, err := app.Agent().Run(context.Background(), "I need a refund for order 123")
 	if err != nil {
 		t.Fatalf("Agent().Run() error = %v", err)
 	}
-	if res.Answer != "hello from support" {
-		t.Fatalf("Agent().Run() answer = %q, want %q", res.Answer, "hello from support")
+	if !strings.Contains(strings.ToLower(res.Answer), "refund guidance") {
+		t.Fatalf("Agent().Run() answer = %q, want refund guidance", res.Answer)
+	}
+	if !strings.Contains(res.Answer, "24h") {
+		t.Fatalf("Agent().Run() answer = %q, want seeded policy evidence", res.Answer)
 	}
 	if app.ModelInfo().Provider != "scripted" {
 		t.Fatalf("ModelInfo().Provider = %q, want %q", app.ModelInfo().Provider, "scripted")
@@ -174,7 +178,7 @@ func TestRun_ShutsDownTracerProviderOnCancel(t *testing.T) {
 			return llm.NewScriptedLLM(
 				llm.WithProvider("scripted"),
 				llm.WithModel("scripted-support"),
-				llm.WithResponses(llm.TextResponse("ok")),
+				llm.WithCapabilities(llm.Capabilities{Tools: true, Embeddings: true}),
 			), nil
 		}),
 		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
@@ -231,7 +235,11 @@ func TestNew_RegistersTransportRoutes(t *testing.T) {
 			return llm.NewScriptedLLM(
 				llm.WithProvider("scripted"),
 				llm.WithModel("scripted-support"),
-				llm.WithResponses(llm.TextResponse("route answer"), llm.TextResponse("stream answer")),
+				llm.WithCapabilities(llm.Capabilities{Tools: true, Embeddings: true}),
+				llm.WithResponses(
+					llm.ToolCallResponse("refund_policy", `{"order_id":"123"}`),
+					llm.ToolCallResponse("refund_policy", `{"order_id":"123"}`),
+				),
 			), nil
 		}),
 		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
@@ -256,7 +264,7 @@ func TestNew_RegistersTransportRoutes(t *testing.T) {
 		t.Fatalf("/healthz status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{"message":"hi"}`))
+	req = httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{"message":"refund order 123"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	app.server.Handler.ServeHTTP(rec, req)
@@ -270,8 +278,94 @@ func TestNew_RegistersTransportRoutes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Answer != "route answer" {
-		t.Fatalf("Answer = %q, want %q", resp.Answer, "route answer")
+	if !strings.Contains(resp.Answer, "24h") {
+		t.Fatalf("Answer = %q, want seeded refund policy answer", resp.Answer)
+	}
+}
+
+func TestNew_MissingOrderIDRequestsMoreInfo(t *testing.T) {
+	cfg := config.Config{
+		HTTPAddr:          "127.0.0.1:0",
+		Provider:          config.ProviderOllama,
+		Model:             "scripted-support",
+		EmbeddingProvider: config.ProviderOpenAI,
+		EmbeddingModel:    "scripted-embed",
+		SystemPrompt:      "You are support",
+		ShutdownTimeout:   200 * time.Millisecond,
+	}
+
+	app, err := New(context.Background(), cfg,
+		WithModelFactory(func(config.Config) (llm.ChatModel, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted"),
+				llm.WithModel("scripted-support"),
+				llm.WithCapabilities(llm.Capabilities{Tools: true, Embeddings: true}),
+			), nil
+		}),
+		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted-embed"),
+				llm.WithModel("scripted-embed"),
+				llm.WithEmbedDimensions(8),
+			), nil
+		}),
+		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
+			return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	res, err := app.Agent().Run(context.Background(), "I need a refund")
+	if err != nil {
+		t.Fatalf("Agent().Run() error = %v", err)
+	}
+	if !strings.Contains(strings.ToLower(res.Answer), "order id") {
+		t.Fatalf("Agent().Run() answer = %q, want order ID clarification", res.Answer)
+	}
+}
+
+func TestNew_ChargebackEscalatesToHuman(t *testing.T) {
+	cfg := config.Config{
+		HTTPAddr:          "127.0.0.1:0",
+		Provider:          config.ProviderOllama,
+		Model:             "scripted-support",
+		EmbeddingProvider: config.ProviderOpenAI,
+		EmbeddingModel:    "scripted-embed",
+		SystemPrompt:      "You are support",
+		ShutdownTimeout:   200 * time.Millisecond,
+	}
+
+	app, err := New(context.Background(), cfg,
+		WithModelFactory(func(config.Config) (llm.ChatModel, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted"),
+				llm.WithModel("scripted-support"),
+				llm.WithCapabilities(llm.Capabilities{Tools: true, Embeddings: true}),
+			), nil
+		}),
+		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted-embed"),
+				llm.WithModel("scripted-embed"),
+				llm.WithEmbedDimensions(8),
+			), nil
+		}),
+		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
+			return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	res, err := app.Agent().Run(context.Background(), "This is a chargeback on order 123")
+	if err != nil {
+		t.Fatalf("Agent().Run() error = %v", err)
+	}
+	if !strings.Contains(strings.ToLower(res.Answer), "human") {
+		t.Fatalf("Agent().Run() answer = %q, want human escalation", res.Answer)
 	}
 }
 
