@@ -2,6 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +130,54 @@ func TestRun_ShutsDownTracerProviderOnCancel(t *testing.T) {
 
 	if !tracker.shutdownCalled {
 		t.Fatal("tracer provider shutdown was not called")
+	}
+}
+
+func TestNew_RegistersTransportRoutes(t *testing.T) {
+	cfg := config.Config{
+		HTTPAddr:        "127.0.0.1:0",
+		Provider:        config.ProviderOllama,
+		Model:           "scripted-support",
+		SystemPrompt:    "You are support",
+		ShutdownTimeout: 200 * time.Millisecond,
+	}
+
+	app, err := New(context.Background(), cfg, WithModelFactory(func(config.Config) (llm.ChatModel, error) {
+		return llm.NewScriptedLLM(
+			llm.WithProvider("scripted"),
+			llm.WithModel("scripted-support"),
+			llm.WithResponses(llm.TextResponse("route answer"), llm.TextResponse("stream answer")),
+		), nil
+	}), WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
+		return &shutdownTracker{TracerProvider: noop.NewTracerProvider()}, nil
+	}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	app.server.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/healthz status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{"message":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	app.server.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/chat status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Answer string `json:"answer"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Answer != "route answer" {
+		t.Fatalf("Answer = %q, want %q", resp.Answer, "route answer")
 	}
 }
 

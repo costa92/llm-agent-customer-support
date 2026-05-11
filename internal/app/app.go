@@ -8,6 +8,7 @@ import (
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/config"
+	"github.com/costa92/llm-agent-customer-support/internal/httpapi"
 	otelroot "github.com/costa92/llm-agent-otel"
 	"github.com/costa92/llm-agent-otel/otelagent"
 	"github.com/costa92/llm-agent-otel/otelmodel"
@@ -75,10 +76,10 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 	})
 	wrappedAgent := otelagent.Wrap(agent, otelagent.Config{TracerProvider: tp})
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("customer-support bootstrap"))
+	mux := httpapi.NewMux(httpapi.Handlers{
+		Agent:  wrappedAgent,
+		Ready:  func(context.Context) error { return nil },
+		Tracer: tp.Tracer("github.com/costa92/llm-agent-customer-support/httpapi"),
 	})
 
 	return &App{
