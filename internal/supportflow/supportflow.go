@@ -13,6 +13,8 @@ import (
 	"github.com/costa92/llm-agent/llm"
 	"github.com/costa92/llm-agent/orchestrate"
 	"github.com/costa92/llm-agent/rag"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Options struct {
@@ -91,6 +93,9 @@ func (f *flow) run(ctx context.Context, input string, onStep func(agents.Step)) 
 		onStep = func(agents.Step) {}
 	}
 	if ok, _ := f.allowInput(input); !ok {
+		if span := trace.SpanFromContext(ctx); span != nil {
+			span.SetAttributes(attribute.Bool("prompt_injection_attempt", true))
+		}
 		answer := f.guardrails.SafeFallback()
 		final := agents.Step{Kind: agents.StepFinal, Content: answer}
 		onStep(final)
