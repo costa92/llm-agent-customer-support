@@ -8,6 +8,7 @@ import (
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/config"
 	"github.com/costa92/llm-agent-customer-support/internal/httpapi"
+	"github.com/costa92/llm-agent-customer-support/internal/limits"
 	"github.com/costa92/llm-agent-customer-support/internal/providers"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent-customer-support/internal/supportflow"
@@ -62,6 +63,7 @@ type App struct {
 	model    llm.ChatModel
 	embedder llm.Embedder
 	sessions sessionstore.Store
+	guard    *limits.Guard
 	mux      *http.ServeMux
 }
 
@@ -111,10 +113,20 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 		_ = tp.Shutdown(context.Background())
 		return nil, err
 	}
-	wrappedAgent := otelagent.Wrap(agent, otelagent.Config{TracerProvider: tp})
+	guard := limits.New(limits.Config{
+		MaxTokensPerRequest:       cfg.MaxTokensPerRequest,
+		MaxToolCallsPerAgentLoop:  cfg.MaxToolCallsPerAgentLoop,
+		MaxRequestsPerIPPerMinute: cfg.MaxRequestsPerIPPerMinute,
+		RetryMaxAttempts:          cfg.RetryMaxAttempts,
+		DailyTokenBudget:          cfg.DailyTokenBudget,
+		DisableLLMVar:             "DISABLE_LLM",
+	})
+	guardedAgent := guard.WrapAgent(agent)
+	wrappedAgent := otelagent.Wrap(guardedAgent, otelagent.Config{TracerProvider: tp})
 
 	mux := httpapi.NewMux(httpapi.Handlers{
 		Agent:  wrappedAgent,
+		Guard:  guard,
 		Ready:  func(context.Context) error { return nil },
 		Tracer: tp.Tracer("github.com/costa92/llm-agent-customer-support/httpapi"),
 	})
@@ -130,6 +142,7 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 		model:    wrappedModel,
 		embedder: embedder,
 		sessions: sessions,
+		guard:    guard,
 		mux:      mux,
 	}, nil
 }

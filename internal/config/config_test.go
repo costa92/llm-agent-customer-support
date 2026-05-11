@@ -34,6 +34,24 @@ func TestLoadFromLookup_Defaults(t *testing.T) {
 	if cfg.SessionDSN == "" {
 		t.Fatal("SessionDSN is empty")
 	}
+	if cfg.MaxTokensPerRequest != 1024 {
+		t.Fatalf("MaxTokensPerRequest = %d, want %d", cfg.MaxTokensPerRequest, 1024)
+	}
+	if cfg.MaxToolCallsPerAgentLoop != 4 {
+		t.Fatalf("MaxToolCallsPerAgentLoop = %d, want %d", cfg.MaxToolCallsPerAgentLoop, 4)
+	}
+	if cfg.MaxRequestsPerIPPerMinute != 60 {
+		t.Fatalf("MaxRequestsPerIPPerMinute = %d, want %d", cfg.MaxRequestsPerIPPerMinute, 60)
+	}
+	if cfg.RetryMaxAttempts != 2 {
+		t.Fatalf("RetryMaxAttempts = %d, want %d", cfg.RetryMaxAttempts, 2)
+	}
+	if cfg.DailyTokenBudget != 100000 {
+		t.Fatalf("DailyTokenBudget = %d, want %d", cfg.DailyTokenBudget, 100000)
+	}
+	if cfg.DisableLLM {
+		t.Fatal("DisableLLM = true, want false")
+	}
 	if cfg.SystemPrompt == "" {
 		t.Fatal("SystemPrompt is empty, want default prompt")
 	}

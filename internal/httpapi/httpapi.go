@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	agents "github.com/costa92/llm-agent"
+	"github.com/costa92/llm-agent-customer-support/internal/limits"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
@@ -21,6 +22,7 @@ type ReadyFunc func(context.Context) error
 
 type Handlers struct {
 	Agent  agents.Agent
+	Guard  *limits.Guard
 	Ready  ReadyFunc
 	Tracer trace.Tracer
 }
@@ -49,10 +51,10 @@ type StreamEnvelope struct {
 func NewMux(h Handlers) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/chat", withTrace(h.Tracer, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handleChat(h.Agent, w, r)
+		handleChat(h.Agent, h.Guard, w, r)
 	})))
 	mux.Handle("/chat/stream", withTrace(h.Tracer, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handleStream(h.Agent, w, r)
+		handleStream(h.Agent, h.Guard, w, r)
 	})))
 	mux.Handle("/healthz", withTrace(h.Tracer, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleHealth(w, r)
@@ -80,7 +82,7 @@ func withTrace(tracer trace.Tracer, next http.Handler) http.Handler {
 	})
 }
 
-func handleChat(agent agents.Agent, w http.ResponseWriter, r *http.Request) {
+func handleChat(agent agents.Agent, guard *limits.Guard, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -93,9 +95,12 @@ func handleChat(agent agents.Agent, w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := withRequestSession(w, r.Context(), req.SessionID)
+	if blocked := preflightGuard(ctx, guard, w, r, req); blocked {
+		return
+	}
 	res, err := agent.Run(ctx, req.Message)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, limits.HTTPStatus(err), err.Error())
 		return
 	}
 	sessionID := ensureSessionID(w, ctx, req.SessionID)
@@ -107,7 +112,7 @@ func handleChat(agent agents.Agent, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func handleStream(agent agents.Agent, w http.ResponseWriter, r *http.Request) {
+func handleStream(agent agents.Agent, guard *limits.Guard, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -126,9 +131,12 @@ func handleStream(agent agents.Agent, w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := withRequestSession(w, r.Context(), req.SessionID)
+	if blocked := preflightGuard(ctx, guard, w, r, req); blocked {
+		return
+	}
 	ch, err := agent.RunStream(ctx, req.Message)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, limits.HTTPStatus(err), err.Error())
 		return
 	}
 
@@ -214,6 +222,21 @@ func ensureSessionID(w http.ResponseWriter, ctx context.Context, requested strin
 	}
 	w.Header().Set(sessionHeader, sessionID)
 	return sessionID
+}
+
+func preflightGuard(ctx context.Context, guard *limits.Guard, w http.ResponseWriter, r *http.Request, req ChatRequest) bool {
+	if guard == nil {
+		return false
+	}
+	err := guard.Preflight(ctx, limits.CheckInput{
+		Message:    req.Message,
+		RemoteAddr: r.RemoteAddr,
+	})
+	if err == nil {
+		return false
+	}
+	writeError(w, limits.HTTPStatus(err), err.Error())
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

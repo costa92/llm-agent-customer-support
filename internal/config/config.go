@@ -17,16 +17,22 @@ const (
 const defaultSystemPrompt = "You are a helpful customer-support assistant. Be concise, factual, and safe."
 
 type Config struct {
-	HTTPAddr          string
-	Provider          string
-	Model             string
-	EmbeddingProvider string
-	EmbeddingModel    string
-	SessionBackend    string
-	SessionDSN        string
-	SystemPrompt      string
-	ServiceName       string
-	ShutdownTimeout   time.Duration
+	HTTPAddr                  string
+	Provider                  string
+	Model                     string
+	EmbeddingProvider         string
+	EmbeddingModel            string
+	SessionBackend            string
+	SessionDSN                string
+	MaxTokensPerRequest       int
+	MaxToolCallsPerAgentLoop  int
+	MaxRequestsPerIPPerMinute int
+	RetryMaxAttempts          int
+	DailyTokenBudget          int
+	DisableLLM                bool
+	SystemPrompt              string
+	ServiceName               string
+	ShutdownTimeout           time.Duration
 
 	OTLPProtocol string
 	OTLPEndpoint string
@@ -45,19 +51,25 @@ func Load() (Config, error) {
 
 func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	cfg := Config{
-		HTTPAddr:         envOrDefault(lookup, "HTTP_ADDR", ":8080"),
-		Provider:         strings.ToLower(envOrDefault(lookup, "LLM_PROVIDER", ProviderOllama)),
-		SessionBackend:   strings.ToLower(envOrDefault(lookup, "SESSION_BACKEND", "sqlite")),
-		SystemPrompt:     envOrDefault(lookup, "SYSTEM_PROMPT", defaultSystemPrompt),
-		ServiceName:      envOrDefault(lookup, "OTEL_SERVICE_NAME", "llm-agent-customer-support"),
-		OTLPProtocol:     strings.ToLower(envOrDefault(lookup, "OTEL_EXPORTER_OTLP_PROTOCOL", "http")),
-		OTLPEndpoint:     envOrDefault(lookup, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
-		OTLPInsecure:     envBoolOrDefault(lookup, "OTEL_EXPORTER_OTLP_INSECURE", true),
-		OpenAIAPIKey:     envOrDefault(lookup, "OPENAI_API_KEY", ""),
-		OpenAIBaseURL:    envOrDefault(lookup, "OPENAI_BASE_URL", ""),
-		AnthropicAPIKey:  envOrDefault(lookup, "ANTHROPIC_API_KEY", ""),
-		AnthropicBaseURL: envOrDefault(lookup, "ANTHROPIC_BASE_URL", ""),
-		OllamaBaseURL:    envOrDefault(lookup, "OLLAMA_HOST", ""),
+		HTTPAddr:                  envOrDefault(lookup, "HTTP_ADDR", ":8080"),
+		Provider:                  strings.ToLower(envOrDefault(lookup, "LLM_PROVIDER", ProviderOllama)),
+		SessionBackend:            strings.ToLower(envOrDefault(lookup, "SESSION_BACKEND", "sqlite")),
+		SystemPrompt:              envOrDefault(lookup, "SYSTEM_PROMPT", defaultSystemPrompt),
+		ServiceName:               envOrDefault(lookup, "OTEL_SERVICE_NAME", "llm-agent-customer-support"),
+		OTLPProtocol:              strings.ToLower(envOrDefault(lookup, "OTEL_EXPORTER_OTLP_PROTOCOL", "http")),
+		OTLPEndpoint:              envOrDefault(lookup, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+		OTLPInsecure:              envBoolOrDefault(lookup, "OTEL_EXPORTER_OTLP_INSECURE", true),
+		OpenAIAPIKey:              envOrDefault(lookup, "OPENAI_API_KEY", ""),
+		OpenAIBaseURL:             envOrDefault(lookup, "OPENAI_BASE_URL", ""),
+		AnthropicAPIKey:           envOrDefault(lookup, "ANTHROPIC_API_KEY", ""),
+		AnthropicBaseURL:          envOrDefault(lookup, "ANTHROPIC_BASE_URL", ""),
+		OllamaBaseURL:             envOrDefault(lookup, "OLLAMA_HOST", ""),
+		MaxTokensPerRequest:       envIntOrDefault(lookup, "MAX_TOKENS_PER_REQUEST", 1024),
+		MaxToolCallsPerAgentLoop:  envIntOrDefault(lookup, "MAX_TOOL_CALLS_PER_AGENT_LOOP", 4),
+		MaxRequestsPerIPPerMinute: envIntOrDefault(lookup, "MAX_REQUESTS_PER_IP_PER_MINUTE", 60),
+		RetryMaxAttempts:          envIntOrDefault(lookup, "RETRY_MAX_ATTEMPTS", 2),
+		DailyTokenBudget:          envIntOrDefault(lookup, "DAILY_TOKEN_BUDGET", 100000),
+		DisableLLM:                envBoolOrDefault(lookup, "DISABLE_LLM", false),
 	}
 
 	switch cfg.Provider {
@@ -151,4 +163,16 @@ func envDurationOrDefault(lookup func(string) (string, bool), key string, fallba
 		return fallback
 	}
 	return d
+}
+
+func envIntOrDefault(lookup func(string) (string, bool), key string, fallback int) int {
+	v, ok := lookup(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
 }

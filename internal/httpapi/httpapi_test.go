@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	agents "github.com/costa92/llm-agent"
+	"github.com/costa92/llm-agent-customer-support/internal/limits"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
 	"go.opentelemetry.io/otel"
@@ -123,6 +125,76 @@ func TestChatHandler_GeneratesSessionIDWhenMissing(t *testing.T) {
 		t.Fatal("X-Session-Id header is empty")
 	} else if got != agent.lastSessionID {
 		t.Fatalf("X-Session-Id = %q, want %q", got, agent.lastSessionID)
+	}
+}
+
+func TestChatHandler_Returns429WhenGuardRejects(t *testing.T) {
+	guard := limits.New(limits.Config{
+		MaxTokensPerRequest:       2,
+		MaxToolCallsPerAgentLoop:  4,
+		MaxRequestsPerIPPerMinute: 10,
+		RetryMaxAttempts:          2,
+		DailyTokenBudget:          100,
+	})
+	mux := NewMux(Handlers{
+		Agent:  guard.WrapAgent(newStubAgent("unused")),
+		Guard:  guard,
+		Ready:  func(context.Context) error { return nil },
+		Tracer: otel.Tracer("test"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewBufferString(`{"message":"one two three"}`))
+	req.RemoteAddr = "127.0.0.1:9000"
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
+	}
+}
+
+func TestChatHandler_Returns503WhenDisableSwitchFlipsWithoutRestart(t *testing.T) {
+	var disabled atomic.Bool
+	guard := limits.New(limits.Config{
+		MaxTokensPerRequest:       10,
+		MaxToolCallsPerAgentLoop:  4,
+		MaxRequestsPerIPPerMinute: 10,
+		RetryMaxAttempts:          2,
+		DailyTokenBudget:          100,
+		DisableLLMVar:             "DISABLE_LLM",
+	}, limits.WithEnvLookup(func(key string) (string, bool) {
+		if key != "DISABLE_LLM" || !disabled.Load() {
+			return "", false
+		}
+		return "1", true
+	}))
+	mux := NewMux(Handlers{
+		Agent:  guard.WrapAgent(newStubAgent("ok")),
+		Guard:  guard,
+		Ready:  func(context.Context) error { return nil },
+		Tracer: otel.Tracer("test"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewBufferString(`{"message":"hi"}`))
+	req.RemoteAddr = "127.0.0.1:9000"
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	disabled.Store(true)
+
+	req = httptest.NewRequest(http.MethodPost, "/chat", bytes.NewBufferString(`{"message":"hi"}`))
+	req.RemoteAddr = "127.0.0.1:9000"
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("second status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 }
 
