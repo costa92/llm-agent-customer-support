@@ -4,9 +4,9 @@ Reference customer-support service built on [`github.com/costa92/llm-agent`](htt
 
 > **Demo only — production deployment requires hardening.** Single-container `grafana/otel-lgtm`, no auth on `/chat`, dev secrets, hard caps tuned for local demo. The shipped `compose.yaml` brings the stack up in <60s; what it does NOT include: TLS termination, authentication, secret management, multi-tenant isolation, regional sharding.
 
-> **v0.1.0-pre / Phase 0 skeleton.** Service implementation lands in Phase 6 per the [llm-agent ROADMAP](https://github.com/costa92/llm-agent/blob/main/.planning/ROADMAP.md). This repo currently contains only build infrastructure - no Go source files yet.
->
-> **Expected CI status:** The first push CI run may fail on `go mod tidy` because `github.com/costa92/llm-agent v0.3.0-pre.1` does not exist until the core repo tags it at the end of Phase 0. This is intentional Phase-0 signal. Once the core repo cuts the `v0.3.0-pre.1` tag, sister-repo CI goes green automatically.
+> **v0.1.0-pre / Phase 6 bootstrap in progress.** The first service slice is now in place: env-var config loading, provider-aware model factory, OTel tracer-provider wiring, wrapped `SimpleAgent` bootstrap, and graceful HTTP shutdown. HTTP business endpoints, storage, caps, guardrails, and compose assets still land in later Phase 6 plans.
+
+> **Current local-dev note:** this repo currently uses local `replace` directives during cross-repo execution so the service can build against sibling checkouts of `llm-agent`, `llm-agent-providers`, and `llm-agent-otel` before coordinated tags exist. Those `replace` lines are a temporary development escape hatch and must not ship on release branches.
 
 > **K8s manifests are NOT part of v0.3.** See [PITFALLS Pitfall 16](https://github.com/costa92/llm-agent/blob/main/.planning/research/PITFALLS.md) for rationale. Half-shipped K8s is worse than no K8s; the v0.4 deferral note is on the roadmap. Do NOT submit Helm charts / kustomize / kind config in PRs against this repo until v0.4 milestone-planning explicitly includes them.
 
@@ -17,6 +17,13 @@ git clone https://github.com/costa92/llm-agent-customer-support.git
 cd llm-agent-customer-support
 docker compose up    # available after Phase 6
 ```
+
+## Current bootstrap surface
+
+- `cmd/server/main.go` loads config, installs signal handling, builds the app, and runs until SIGINT/SIGTERM.
+- `internal/config` owns env parsing and provider-aware defaults for `openai`, `anthropic`, and `ollama`.
+- `internal/app` owns model construction, OTel tracer-provider lifecycle, wrapped agent construction, and `http.Server` startup/shutdown.
+- The current HTTP server is only a bootstrap placeholder. Real `/chat`, `/chat/stream`, `/healthz`, and `/readyz` handlers land in `06-02`.
 
 ## Architecture (Phase 6 preview)
 
