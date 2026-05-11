@@ -15,8 +15,42 @@ Reference customer-support service built on [`github.com/costa92/llm-agent`](htt
 ```bash
 git clone https://github.com/costa92/llm-agent-customer-support.git
 cd llm-agent-customer-support
-docker compose up    # available after Phase 6
+docker compose -f compose/compose.yaml up --build
 ```
+
+## Demo stack
+
+The local demo stack now lives at [compose/compose.yaml](./compose/compose.yaml). It starts:
+
+- the customer-support app on `http://localhost:8080`
+- Ollama for local chat + embeddings
+- an OpenTelemetry Collector with tail-sampling
+- Grafana on `http://localhost:3000`
+
+First boot is slower because `ollama-init` pulls both `llama3.1:8b` and `nomic-embed-text` before the app starts. On a cold machine that model download dominates startup time; after the volume is warm, subsequent boots are much faster.
+
+Start the stack:
+
+```bash
+docker compose -f compose/compose.yaml up --build
+```
+
+Verify the service surface:
+
+```bash
+curl http://localhost:8080/readyz
+curl -X POST http://localhost:8080/chat -H 'Content-Type: application/json' -d '{"message":"hello"}'
+```
+
+Then open Grafana at `http://localhost:3000` and confirm the pre-provisioned `Customer Support Observability` dashboard is present. The shipped dashboard includes panels for `Request Latency`, `Token Usage`, `Estimated Cost`, `Error Rate`, and `Tool Success Ratio`.
+
+Tail-sampling policy is configured in [compose/otel-collector.yaml](./compose/otel-collector.yaml):
+
+- keep 100% of error traces
+- keep 100% of traces slower than 5 seconds
+- keep 10% baseline traffic otherwise
+
+Observability caveat: this is a demo stack, not a billing or SLO source of truth. `Token Usage`, `Estimated Cost`, and `Tool Success Ratio` are span-derived demo views intended to make traces explorable quickly on a fresh local stack; production reporting would need dedicated metrics, authenticated backends, and provider-billed token reconciliation.
 
 ## Current bootstrap surface
 
