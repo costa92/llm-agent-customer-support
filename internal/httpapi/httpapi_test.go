@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +17,9 @@ import (
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestChatHandler_ReturnsJSONAndTraceHeader(t *testing.T) {
@@ -129,6 +132,9 @@ func TestChatHandler_GeneratesSessionIDWhenMissing(t *testing.T) {
 }
 
 func TestChatHandler_Returns429WhenGuardRejects(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 	guard := limits.New(limits.Config{
 		MaxTokensPerRequest:       2,
 		MaxToolCallsPerAgentLoop:  4,
@@ -140,7 +146,7 @@ func TestChatHandler_Returns429WhenGuardRejects(t *testing.T) {
 		Agent:  guard.WrapAgent(newStubAgent("unused")),
 		Guard:  guard,
 		Ready:  func(context.Context) error { return nil },
-		Tracer: otel.Tracer("test"),
+		Tracer: tp.Tracer("test"),
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewBufferString(`{"message":"one two three"}`))
@@ -153,9 +159,13 @@ func TestChatHandler_Returns429WhenGuardRejects(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
 	}
+	assertSingleSpanStatus(t, exp.GetSpans(), "POST /chat", codes.Error)
 }
 
 func TestChatHandler_Returns503WhenDisableSwitchFlipsWithoutRestart(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 	var disabled atomic.Bool
 	guard := limits.New(limits.Config{
 		MaxTokensPerRequest:       10,
@@ -174,7 +184,7 @@ func TestChatHandler_Returns503WhenDisableSwitchFlipsWithoutRestart(t *testing.T
 		Agent:  guard.WrapAgent(newStubAgent("ok")),
 		Guard:  guard,
 		Ready:  func(context.Context) error { return nil },
-		Tracer: otel.Tracer("test"),
+		Tracer: tp.Tracer("test"),
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewBufferString(`{"message":"hi"}`))
@@ -195,6 +205,16 @@ func TestChatHandler_Returns503WhenDisableSwitchFlipsWithoutRestart(t *testing.T
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("second status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	spans := exp.GetSpans()
+	if len(spans) != 2 {
+		t.Fatalf("len(spans) = %d, want 2", len(spans))
+	}
+	if spans[1].Name != "POST /chat" {
+		t.Fatalf("second span name = %q, want POST /chat", spans[1].Name)
+	}
+	if spans[1].Status.Code != codes.Error {
+		t.Fatalf("second span status = %v, want %v", spans[1].Status.Code, codes.Error)
 	}
 }
 
@@ -263,12 +283,15 @@ func TestHealthAndReadyHandlers(t *testing.T) {
 }
 
 func TestReadyHandler_ReportsUnavailable(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 	mux := NewMux(Handlers{
 		Agent: newStubAgent("ok"),
 		Ready: func(context.Context) error {
 			return context.DeadlineExceeded
 		},
-		Tracer: otel.Tracer("test"),
+		Tracer: tp.Tracer("test"),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
@@ -278,10 +301,12 @@ func TestReadyHandler_ReportsUnavailable(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
+	assertSingleSpanStatus(t, exp.GetSpans(), "GET /readyz", codes.Error)
 }
 
 type stubAgent struct {
 	answer string
+	err    error
 }
 
 func newStubAgent(answer string) agents.Agent {
@@ -291,6 +316,9 @@ func newStubAgent(answer string) agents.Agent {
 func (a *stubAgent) Name() string { return "stub-agent" }
 
 func (a *stubAgent) Run(_ context.Context, _ string) (agents.Result, error) {
+	if a.err != nil {
+		return agents.Result{}, a.err
+	}
 	return agents.Result{
 		Answer: a.answer,
 		Trace:  []agents.Step{{Kind: agents.StepFinal, Content: a.answer}},
@@ -302,6 +330,10 @@ func (a *stubAgent) RunStream(_ context.Context, _ string) (<-chan agents.StepEv
 	ch := make(chan agents.StepEvent, 2)
 	go func() {
 		defer close(ch)
+		if a.err != nil {
+			ch <- agents.StepEvent{Done: true, Err: a.err}
+			return
+		}
 		ch <- agents.StepEvent{Step: agents.Step{Kind: agents.StepFinal, Content: a.answer}}
 		ch <- agents.StepEvent{Done: true, Final: &agents.Result{
 			Answer: a.answer,
@@ -354,6 +386,41 @@ func TestStreamBody_IsLineDelimited(t *testing.T) {
 	}
 	if lines < 4 {
 		t.Fatalf("SSE line count = %d, want at least 4", lines)
+	}
+}
+
+func TestChatHandler_Returns500AndMarksTraceErrorOnAgentFailure(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	mux := NewMux(Handlers{
+		Agent:  &stubAgent{err: errors.New("boom")},
+		Ready:  func(context.Context) error { return nil },
+		Tracer: tp.Tracer("test"),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/chat", bytes.NewBufferString(`{"message":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	assertSingleSpanStatus(t, exp.GetSpans(), "POST /chat", codes.Error)
+}
+
+func assertSingleSpanStatus(t *testing.T, spans tracetest.SpanStubs, name string, want codes.Code) {
+	t.Helper()
+	if len(spans) != 1 {
+		t.Fatalf("len(spans) = %d, want 1", len(spans))
+	}
+	if spans[0].Name != name {
+		t.Fatalf("span name = %q, want %q", spans[0].Name, name)
+	}
+	if spans[0].Status.Code != want {
+		t.Fatalf("span status = %v, want %v", spans[0].Status.Code, want)
 	}
 }
 

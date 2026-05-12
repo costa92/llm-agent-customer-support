@@ -12,6 +12,7 @@ import (
 	"github.com/costa92/llm-agent-customer-support/internal/limits"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -70,7 +71,18 @@ func withTrace(tracer trace.Tracer, next http.Handler) http.Handler {
 		if tracer != nil {
 			ctx, span := tracer.Start(r.Context(), r.Method+" "+r.URL.Path)
 			defer span.End()
+			tw := &statusTrackingResponseWriter{ResponseWriter: w, status: http.StatusOK}
 			r = r.WithContext(ctx)
+			if sc := trace.SpanContextFromContext(r.Context()); sc.IsValid() {
+				tw.Header().Set(traceHeader, sc.TraceID().String())
+			} else {
+				tw.Header().Set(traceHeader, "bootstrap-trace")
+			}
+			next.ServeHTTP(tw, r)
+			if tw.status >= http.StatusBadRequest {
+				span.SetStatus(codes.Error, http.StatusText(tw.status))
+			}
+			return
 		}
 
 		if sc := trace.SpanContextFromContext(r.Context()); sc.IsValid() {
@@ -80,6 +92,29 @@ func withTrace(tracer trace.Tracer, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+type statusTrackingResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusTrackingResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusTrackingResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *statusTrackingResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func handleChat(agent agents.Agent, guard *limits.Guard, w http.ResponseWriter, r *http.Request) {

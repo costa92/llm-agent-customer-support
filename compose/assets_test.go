@@ -33,6 +33,8 @@ func TestDemoAssetsExistAndDocumentObservability(t *testing.T) {
 	collectorBody := mustReadFile(t, collectorPath)
 	assertContainsAll(t, collectorBody,
 		"tail_sampling",
+		"endpoint: 0.0.0.0:4317",
+		"endpoint: 0.0.0.0:4318",
 		"decision_wait: 30s",
 		"- name: errors",
 		"- name: high-latency",
