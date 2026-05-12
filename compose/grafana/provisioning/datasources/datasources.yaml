@@ -1,0 +1,26 @@
+apiVersion: 1
+
+datasources:
+  - name: Demo Prometheus
+    type: prometheus
+    access: proxy
+    url: http://otel-collector:8889
+    isDefault: true
+    editable: false
+    uid: prometheus-demo
+  - name: Demo Tempo
+    type: tempo
+    access: proxy
+    url: http://otel-lgtm:3200
+    editable: false
+    uid: tempo-demo
+    jsonData:
+      traceqlEditor: true
+      tracesToMetrics:
+        datasourceUid: prometheus-demo
+  - name: Demo Loki
+    type: loki
+    access: proxy
+    url: http://otel-lgtm:3100
+    editable: false
+    uid: loki-demo

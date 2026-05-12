@@ -1,0 +1,73 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+  tail_sampling:
+    decision_wait: 30s
+    num_traces: 1000
+    expected_new_traces_per_sec: 20
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes:
+            - ERROR
+      - name: high-latency
+        type: latency
+        latency:
+          threshold_ms: 5000
+      - name: probabilistic-baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+connectors:
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets:
+          - 50ms
+          - 100ms
+          - 250ms
+          - 500ms
+          - 1s
+          - 2s
+          - 5s
+          - 10s
+    dimensions:
+      - name: agent.name
+      - name: agent.step.kind
+      - name: tool.name
+      - name: gen_ai.system
+      - name: gen_ai.request.model
+
+exporters:
+  otlphttp/lgtm:
+    endpoint: http://otel-lgtm:4318
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers:
+        - otlp
+      processors:
+        - tail_sampling
+        - batch
+      exporters:
+        - otlphttp/lgtm
+        - spanmetrics
+    metrics:
+      receivers:
+        - spanmetrics
+      exporters:
+        - prometheus

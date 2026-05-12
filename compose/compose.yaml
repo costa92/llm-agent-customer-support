@@ -1,0 +1,96 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ollama-init:
+    image: curlimages/curl:8.16.0
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        curl -fsS http://ollama:11434/api/tags >/dev/null
+        curl -fsS http://ollama:11434/api/pull -d '{"name":"llama3.1:8b","stream":false}' -H 'Content-Type: application/json'
+        curl -fsS http://ollama:11434/api/pull -d '{"name":"nomic-embed-text","stream":false}' -H 'Content-Type: application/json'
+    restart: "no"
+
+  otel-lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.137.0
+    command:
+      - "--config=/etc/otelcol-contrib/config.yaml"
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "8889:8889"
+    depends_on:
+      - otel-lgtm
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - otel-lgtm
+      - otel-collector
+
+  app:
+    build:
+      context: ..
+      dockerfile: compose/Dockerfile
+    environment:
+      HTTP_ADDR: ":8080"
+      LLM_PROVIDER: ollama
+      EMBEDDING_PROVIDER: ollama
+      LLM_MODEL: llama3.1:8b
+      EMBEDDING_MODEL: nomic-embed-text
+      OLLAMA_HOST: http://ollama:11434
+      SESSION_BACKEND: sqlite
+      SESSION_DSN: file:/data/support_sessions.db?_pragma=journal_mode(WAL)
+      OTEL_SERVICE_NAME: llm-agent-customer-support
+      OTEL_EXPORTER_OTLP_PROTOCOL: http
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_SEMCONV_STABILITY_OPT_IN: gen_ai_latest_experimental
+      MAX_TOKENS_PER_REQUEST: "1024"
+      MAX_TOOL_CALLS_PER_AGENT_LOOP: "4"
+      MAX_REQUESTS_PER_IP_PER_MINUTE: "60"
+      RETRY_MAX_ATTEMPTS: "2"
+      DAILY_TOKEN_BUDGET: "100000"
+    ports:
+      - "8080:8080"
+    volumes:
+      - support-data:/data
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
+volumes:
+  ollama-data:
+  support-data:
