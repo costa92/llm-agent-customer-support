@@ -57,9 +57,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/costa92/llm-agent => /home/hellotalk/code/go/src/github.com/costa92/llm-agent
-
-replace github.com/costa92/llm-agent-otel => /tmp/llm-agent-otel
-
-replace github.com/costa92/llm-agent-providers => /tmp/llm-agent-providers
