@@ -51,7 +51,7 @@ func New(opts Options) (agents.Agent, error) {
 	if opts.Guardrails != nil {
 		systemPrompt = opts.Guardrails.SystemPromptPrefix() + "\n\n" + systemPrompt
 	}
-	selfService, err := agents.NewFunctionCallAgent(opts.Model, agents.FunctionCallOptions{
+	selfService, err := newToolAgent(opts.Model, toolAgentOptions{
 		Name:         "support-self-service",
 		Registry:     reg,
 		SystemPrompt: systemPrompt,
