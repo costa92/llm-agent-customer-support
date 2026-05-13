@@ -45,15 +45,15 @@ jobs:
 
           review_json=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews")
           latest_state=$(printf '%s' "$review_json" | python3 -c '
-import json, sys
-reviews = [r for r in json.load(sys.stdin) if r.get("user", {}).get("login") == "costa92" and r.get("state") != "COMMENTED"]
-print(reviews[-1]["state"] if reviews else "")
-')
+          import json, sys
+          reviews = [r for r in json.load(sys.stdin) if r.get("user", {}).get("login") == "costa92" and r.get("state") != "COMMENTED"]
+          print(reviews[-1]["state"] if reviews else "")
+          ')
           latest_commit=$(printf '%s' "$review_json" | python3 -c '
-import json, sys
-reviews = [r for r in json.load(sys.stdin) if r.get("user", {}).get("login") == "costa92" and r.get("state") != "COMMENTED"]
-print(reviews[-1].get("commit_id", "") if reviews else "")
-')
+          import json, sys
+          reviews = [r for r in json.load(sys.stdin) if r.get("user", {}).get("login") == "costa92" and r.get("state") != "COMMENTED"]
+          print(reviews[-1].get("commit_id", "") if reviews else "")
+          ')
 
           if [ "$latest_state" = "APPROVED" ] && [ "$latest_commit" = "$head_sha" ]; then
             echo "Approved by costa92 on current head: $head_sha"
