@@ -8,8 +8,8 @@ github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1x
 github.com/cenkalti/backoff/v5 v5.0.3/go.mod h1:rkhZdG3JZukswDf7f0cwqPNk4K0sa+F97BxZthm/crw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
-github.com/costa92/llm-agent v0.3.0-pre.2 h1:PkpVln4KRV1fJqxrL0KsKFQ+ABNSA1gzJeKOAnKvqFA=
-github.com/costa92/llm-agent v0.3.0-pre.2/go.mod h1:lv2xC79aHgurUOuo+qWAIcLksh59BrCXFslmUrHdMXM=
+github.com/costa92/llm-agent v0.4.0 h1:NPwchf/LMBTTzte3fhy/Wg0+VEu8gOMTF/3zxiZX0Lw=
+github.com/costa92/llm-agent v0.4.0/go.mod h1:lv2xC79aHgurUOuo+qWAIcLksh59BrCXFslmUrHdMXM=
 github.com/costa92/llm-agent-otel v0.1.0 h1:Cn9mIQlTBwl+R8/37p/STPKxJzAL8/sFlnLwPPXBGrc=
 github.com/costa92/llm-agent-otel v0.1.0/go.mod h1:DuoYnlLdble4ZXf7Iu/fzN4AXfgaHPXbOPTE2PfyefQ=
 github.com/costa92/llm-agent-providers v0.1.0 h1:fOfhKViPn3uusWaUyTObc4ELOr9/9ndlnBSCBv2RsSU=
