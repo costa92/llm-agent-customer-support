@@ -69,6 +69,9 @@ jobs:
   auto-merge-owner:
     needs: governance
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Enable auto-merge for owner PR
         env:
@@ -83,6 +86,11 @@ jobs:
           fi
           if [ "$author" != "costa92" ]; then
             echo "Non-owner PR: governance may pass after review, but merge remains manual."
+            exit 0
+          fi
+          auto_merge_enabled=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$auto_merge_enabled" = "true" ]; then
+            echo "Auto-merge already enabled for owner PR."
             exit 0
           fi
           gh pr merge "$PR_NUMBER" \
