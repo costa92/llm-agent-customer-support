@@ -3,7 +3,7 @@ module github.com/costa92/llm-agent-customer-support
 go 1.26.0
 
 require (
-	github.com/costa92/llm-agent v0.3.0-pre.2
+	github.com/costa92/llm-agent v0.4.0
 	github.com/costa92/llm-agent-otel v0.1.0
 	github.com/costa92/llm-agent-providers v0.1.0
 	github.com/google/uuid v1.6.0
