@@ -105,6 +105,15 @@ This repo is already code-compatible with the `llm-agent v0.4` core surface.
 Its local release-prep state now targets `github.com/costa92/llm-agent v0.4.0`.
 The only remaining Phase 7 follow-up is publishing the final coordinated tags.
 
+## PR automation
+
+This repo now expects `.github/workflows/pr-governance.yml` to enforce a simple policy:
+
+- PRs authored by `costa92` should be auto-approved by a non-author automation identity and merged automatically after required checks pass.
+- PRs authored by anyone else should request review from `costa92`.
+
+To make owner-authored PR auto-merge work, configure a repository secret named `PR_AUTOMATION_TOKEN`. That token must belong to a different GitHub identity than `costa92` and it must have enough permission to approve PRs and enable auto-merge on this repo.
+
 ## See also
 
 - [`llm-agent` CLAUDE.md](https://github.com/costa92/llm-agent/blob/main/CLAUDE.md) — project hard rules (stdlib-only core, no K8s, capability per-(provider x model)).
