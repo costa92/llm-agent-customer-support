@@ -109,10 +109,10 @@ The only remaining Phase 7 follow-up is publishing the final coordinated tags.
 
 This repo now expects `.github/workflows/pr-governance.yml` to enforce a simple policy:
 
-- PRs authored by `costa92` should be auto-approved by a non-author automation identity and merged automatically after required checks pass.
-- PRs authored by anyone else should request review from `costa92`.
+- PRs authored by `costa92` should pass governance automatically and enable auto-merge after required checks pass.
+- PRs authored by anyone else should request review from `costa92` and stay blocked until `costa92` approves the current PR head.
 
-To make owner-authored PR auto-merge work, configure a repository secret named `PR_AUTOMATION_TOKEN`. That token must belong to a different GitHub identity than `costa92` and it must have enough permission to approve PRs and enable auto-merge on this repo.
+This policy is designed to work with branch protection that requires the `go` and `governance` status checks, instead of GitHub's built-in required-approval gate.
 
 ## See also
 
