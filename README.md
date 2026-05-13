@@ -101,7 +101,18 @@ The `release-precheck` CI workflow rejects any non-empty `replace` block on bran
 
 ## Versioning
 
-This repo tracks `v0.1.x` for the `llm-agent v0.3.x` cycle. Sister-repo bumps coordinate with core breaking changes; coordinated tags (Phase 7) advance both repos in lockstep.
+This repo is already code-compatible with the `llm-agent v0.4` core surface.
+Its local release-prep state now targets `github.com/costa92/llm-agent v0.4.0`.
+The only remaining Phase 7 follow-up is publishing the final coordinated tags.
+
+## PR automation
+
+This repo now expects `.github/workflows/pr-governance.yml` to enforce a simple policy:
+
+- PRs authored by `costa92` should pass governance automatically and enable auto-merge after required checks pass.
+- PRs authored by anyone else should request review from `costa92` and stay blocked until `costa92` approves the current PR head.
+
+This policy is designed to work with branch protection that requires the `go` and `governance` status checks, instead of GitHub's built-in required-approval gate.
 
 ## See also
 
