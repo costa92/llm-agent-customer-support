@@ -1,31 +1,33 @@
 # .github/workflows/test.yml
-# Per-repo CI for llm-agent-customer-support (Phase 0 skeleton — no Go source yet).
-# Mirrors github.com/costa92/llm-agent/.github/workflows/test.yml shape.
-name: test
+# CI for llm-agent-customer-support.
+name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
-  group: test-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   GOWORK: off  # INFRA-02: CI never picks up a workspace file silently
 
 jobs:
-  go:
+  format:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+
       - name: go mod tidy (drift check)
         run: |
           go mod tidy
@@ -36,9 +38,53 @@ jobs:
             git --no-pager diff -- go.mod go.sum || true
             exit 1
           fi
+
+      - name: gofmt (drift check)
+        run: |
+          files=$(git ls-files '*.go')
+          if [ -n "$(gofmt -l $files)" ]; then
+            echo "gofmt found files that need formatting"
+            gofmt -l $files
+            exit 1
+          fi
+
+  go:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: go vet
         run: go vet ./...
+
       - name: go build
         run: go build ./...
+
       - name: go test
-        run: go test ./...
+        run: go test ./... -count=1
+
+  compose:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose stack configuration
+        run: docker compose -f compose/compose.yaml config
+
+  docker:
+    needs: go
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release image
+        run: docker build -f compose/Dockerfile .
