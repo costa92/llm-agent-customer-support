@@ -3,8 +3,8 @@ module github.com/costa92/llm-agent-customer-support
 go 1.26.0
 
 require (
-	github.com/costa92/llm-agent v0.5.0
-	github.com/costa92/llm-agent-otel v0.2.0
+	github.com/costa92/llm-agent v0.5.1
+	github.com/costa92/llm-agent-otel v0.2.1
 	github.com/costa92/llm-agent-providers v0.2.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
@@ -20,7 +20,7 @@ require (
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/costa92/llm-agent-rag v1.0.0 // indirect
+	github.com/costa92/llm-agent-rag v1.0.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
