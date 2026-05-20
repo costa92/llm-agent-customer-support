@@ -112,6 +112,87 @@ func TestNew_BuildsRunnableAgent(t *testing.T) {
 	}
 }
 
+func TestNew_CleansUpWhenKnowledgebaseInitFails(t *testing.T) {
+	tracker := &shutdownTracker{TracerProvider: noop.NewTracerProvider()}
+	store := newCloseTrackingSessionStore(t)
+
+	_, err := New(context.Background(), config.Config{
+		HTTPAddr:        "127.0.0.1:0",
+		Model:           "scripted-support",
+		SystemPrompt:    "You are support",
+		ShutdownTimeout: 200 * time.Millisecond,
+	},
+		WithModelFactory(func(config.Config) (llm.ChatModel, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted"),
+				llm.WithModel("scripted-support"),
+				llm.WithCapabilities(llm.Capabilities{Tools: true, Embeddings: true}),
+			), nil
+		}),
+		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
+			return nil, nil
+		}),
+		WithSessionStoreFactory(func(context.Context, config.Config) (sessionstore.Store, error) {
+			return store, nil
+		}),
+		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
+			return tracker, nil
+		}),
+	)
+	if err == nil {
+		t.Fatal("New() error = nil, want failure from knowledgebase init")
+	}
+	if !tracker.shutdownCalled {
+		t.Fatal("tracer provider shutdown was not called")
+	}
+	if !store.closed {
+		t.Fatal("session store was not closed")
+	}
+}
+
+func TestNew_CleansUpWhenSupportflowInitFails(t *testing.T) {
+	tracker := &shutdownTracker{TracerProvider: noop.NewTracerProvider()}
+	store := newCloseTrackingSessionStore(t)
+
+	_, err := New(context.Background(), config.Config{
+		HTTPAddr:        "127.0.0.1:0",
+		Model:           "chat-only",
+		SystemPrompt:    "You are support",
+		ShutdownTimeout: 200 * time.Millisecond,
+	},
+		WithModelFactory(func(config.Config) (llm.ChatModel, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted"),
+				llm.WithModel("chat-only"),
+				llm.WithCapabilities(llm.Capabilities{}),
+			), nil
+		}),
+		WithEmbedderFactory(func(config.Config) (llm.Embedder, error) {
+			return llm.NewScriptedLLM(
+				llm.WithProvider("scripted-embed"),
+				llm.WithModel("scripted-embed"),
+				llm.WithCapabilities(llm.Capabilities{Embeddings: true}),
+				llm.WithEmbedDimensions(8),
+			), nil
+		}),
+		WithSessionStoreFactory(func(context.Context, config.Config) (sessionstore.Store, error) {
+			return store, nil
+		}),
+		WithTracerProviderFactory(func(context.Context, config.Config) (TracerProvider, error) {
+			return tracker, nil
+		}),
+	)
+	if err == nil {
+		t.Fatal("New() error = nil, want failure from supportflow init")
+	}
+	if !tracker.shutdownCalled {
+		t.Fatal("tracer provider shutdown was not called")
+	}
+	if !store.closed {
+		t.Fatal("session store was not closed")
+	}
+}
+
 func TestDefaultEmbedderFactory_SelectsProvider(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -457,6 +538,30 @@ func newTestSessionStoreFactory(t *testing.T) SessionStoreFactory {
 		return sessionstore.OpenSQLite(context.Background(), "file::memory:?cache=shared")
 	}
 }
+
+type closeTrackingSessionStore struct {
+	sessionstore.Store
+	closed bool
+}
+
+func (s *closeTrackingSessionStore) Close() error {
+	s.closed = true
+	if s.Store != nil {
+		return s.Store.Close()
+	}
+	return nil
+}
+
+func newCloseTrackingSessionStore(t *testing.T) *closeTrackingSessionStore {
+	t.Helper()
+	store, err := sessionstore.OpenSQLite(context.Background(), "file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	return &closeTrackingSessionStore{Store: store}
+}
+
+var _ sessionstore.Store = (*closeTrackingSessionStore)(nil)
 
 var _ TracerProvider = (*shutdownTracker)(nil)
 var _ agents.Agent = interface{ agents.Agent }(nil)

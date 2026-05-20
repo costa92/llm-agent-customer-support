@@ -9,17 +9,17 @@ import (
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/guardrails"
+	"github.com/costa92/llm-agent-customer-support/internal/knowledgebase"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
 	"github.com/costa92/llm-agent/orchestrate"
-	"github.com/costa92/llm-agent/rag"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type Options struct {
 	Model      llm.ChatModel
-	RAG        *rag.RAGSystem
+	Knowledge  knowledgebase.PolicyLookup
 	Sessions   sessionstore.Store
 	Guardrails *guardrails.Guardrails
 }
@@ -42,11 +42,11 @@ type state struct {
 }
 
 func New(opts Options) (agents.Agent, error) {
-	if opts.RAG == nil {
-		return nil, errors.New("supportflow: RAG is required")
+	if opts.Knowledge == nil {
+		return nil, errors.New("supportflow: knowledge is required")
 	}
 
-	reg := agents.NewRegistry(refundPolicyTool(opts.RAG))
+	reg := agents.NewRegistry(refundPolicyTool(opts.Knowledge))
 	systemPrompt := "Use the available tools to answer refund and policy questions. Prefer the refund_policy tool when an order ID is present."
 	if opts.Guardrails != nil {
 		systemPrompt = opts.Guardrails.SystemPromptPrefix() + "\n\n" + systemPrompt
@@ -237,7 +237,7 @@ func originalQuestionFromMerged(question string) string {
 	return question
 }
 
-func refundPolicyTool(r *rag.RAGSystem) agents.Tool {
+func refundPolicyTool(lookup knowledgebase.PolicyLookup) agents.Tool {
 	return agents.NewFuncTool(
 		"refund_policy",
 		"Look up refund-policy knowledge for an order and return a grounded answer.",
@@ -256,14 +256,7 @@ func refundPolicyTool(r *rag.RAGSystem) agents.Tool {
 			if strings.TrimSpace(req.OrderID) == "" {
 				return "", errors.New("refund_policy: order_id is required")
 			}
-			hits, err := r.Search(ctx, "refund policy order "+req.OrderID, 1, rag.SearchOptions{})
-			if err != nil {
-				return "", err
-			}
-			if len(hits) == 0 {
-				return "No refund policy evidence found for this order.", nil
-			}
-			return fmt.Sprintf("Refund guidance for order %s: %s", req.OrderID, hits[0].Doc.Content), nil
+			return lookup.LookupRefundPolicy(ctx, req.OrderID)
 		},
 	)
 }

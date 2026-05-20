@@ -8,6 +8,7 @@ import (
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/config"
 	"github.com/costa92/llm-agent-customer-support/internal/httpapi"
+	"github.com/costa92/llm-agent-customer-support/internal/knowledgebase"
 	"github.com/costa92/llm-agent-customer-support/internal/limits"
 	"github.com/costa92/llm-agent-customer-support/internal/providers"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
@@ -16,7 +17,6 @@ import (
 	"github.com/costa92/llm-agent-otel/otelagent"
 	"github.com/costa92/llm-agent-otel/otelmodel"
 	"github.com/costa92/llm-agent/llm"
-	"github.com/costa92/llm-agent/rag"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -97,16 +97,16 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 	}
 
 	wrappedModel := otelmodel.Wrap(model, otelmodel.Config{TracerProvider: tp})
-	knowledge, err := newKnowledgeBase(ctx, embedder)
+	knowledge, err := knowledgebase.New(ctx, embedder)
 	if err != nil {
 		_ = sessions.Close()
 		_ = tp.Shutdown(context.Background())
 		return nil, err
 	}
 	agent, err := supportflow.New(supportflow.Options{
-		Model:    wrappedModel,
-		RAG:      knowledge,
-		Sessions: sessions,
+		Model:     wrappedModel,
+		Knowledge: knowledge,
+		Sessions:  sessions,
 	})
 	if err != nil {
 		_ = sessions.Close()
@@ -225,46 +225,4 @@ func defaultSessionStoreFactory(ctx context.Context, cfg config.Config) (session
 		return sessionstore.OpenPostgres(ctx, cfg.SessionDSN)
 	}
 	return sessionstore.OpenSQLite(ctx, cfg.SessionDSN)
-}
-
-type ragEmbedderAdapter struct {
-	inner llm.Embedder
-}
-
-func (a ragEmbedderAdapter) Embed(ctx context.Context, text string) ([]float32, error) {
-	vectors, _, err := a.inner.Embed(ctx, []string{text})
-	if err != nil {
-		return nil, err
-	}
-	if len(vectors) == 0 {
-		return nil, nil
-	}
-	return vectors[0], nil
-}
-
-func (a ragEmbedderAdapter) Dimension() int {
-	return a.inner.EmbedDimensions()
-}
-
-func newKnowledgeBase(ctx context.Context, embedder llm.Embedder) (*rag.RAGSystem, error) {
-	adapted := ragEmbedderAdapter{inner: embedder}
-	system := rag.New(rag.Options{
-		Embedder: adapted,
-		Store:    rag.NewInMemoryStore(adapted.Dimension()),
-	})
-	seedDocs := []struct {
-		text string
-		meta map[string]any
-	}{
-		{
-			text: "Orders cancelled within 24h are eligible for a full refund.",
-			meta: map[string]any{"topic": "refund_policy"},
-		},
-	}
-	for _, doc := range seedDocs {
-		if _, err := system.AddText(ctx, doc.text, doc.meta); err != nil {
-			return nil, err
-		}
-	}
-	return system, nil
 }
