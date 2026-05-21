@@ -49,10 +49,10 @@ func (r *Runner) Register(typ string, factory flow.NodeFactory) error {
 //
 // Spans emitted (when TracerProvider is non-nil):
 //
-//   flow.run <id>                  — root
-//   └── flow.node <id>             — per-node (omitted in sync path —
-//                                    otelflow's per-node spans fire
-//                                    only on RunStream)
+//	flow.run <id>                  — root
+//	└── flow.node <id>             — per-node (omitted in sync path —
+//	                                 otelflow's per-node spans fire
+//	                                 only on RunStream)
 //
 // For a flow where per-node tracing matters, use ExecuteStream.
 func (r *Runner) Execute(ctx context.Context, flowJSON io.Reader, inputs map[string]string) (map[string]string, error) {

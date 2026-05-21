@@ -18,9 +18,9 @@ type toolAgentOptions struct {
 }
 
 type toolAgent struct {
-	name   string
-	model  llm.ToolCaller
-	opts   toolAgentOptions
+	name  string
+	model llm.ToolCaller
+	opts  toolAgentOptions
 }
 
 func newToolAgent(model llm.ChatModel, opts toolAgentOptions) (agents.Agent, error) {
