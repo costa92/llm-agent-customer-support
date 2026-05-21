@@ -46,7 +46,7 @@ func TestNewToolAgent_BindsToolsAndPrependsSystemPrompt(t *testing.T) {
 		t.Fatalf("bound tools = %#v, want refund_policy", model.boundTools)
 	}
 	if got := model.lastReq.SystemPrompt; got != "" {
-		t.Fatalf("SystemPrompt = %q, want legacy-compatible empty field", got)
+		t.Fatalf("SystemPrompt = %q, want empty field (system prompt is prepended to first user message, not set as separate field)", got)
 	}
 	if len(model.lastReq.Messages) != 1 {
 		t.Fatalf("Messages = %#v, want single user message", model.lastReq.Messages)

@@ -11,9 +11,9 @@ import (
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/guardrails"
+	"github.com/costa92/llm-agent-customer-support/internal/knowledgebase"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
 	"github.com/costa92/llm-agent/llm"
-	"github.com/costa92/llm-agent/rag"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -237,20 +237,10 @@ func withGuardrails(cfg guardrails.Config) testFlowOption {
 
 func newTestFlow(t *testing.T, model llm.ChatModel, opts ...testFlowOption) agents.Agent {
 	t.Helper()
-	store := rag.NewInMemoryStore(32)
-	system := rag.New(rag.Options{
-		Embedder: rag.NewHashEmbedder(32),
-		Store:    store,
-	})
-	_, err := system.AddText(context.Background(), "Orders cancelled within 24h are eligible for a full refund.", map[string]any{
-		"topic": "refund_policy",
-	})
-	if err != nil {
-		t.Fatalf("AddText() error = %v", err)
-	}
+	lookup := knowledgebase.NewForTesting(staticPolicyLookup("Orders cancelled within 24h are eligible for a full refund."))
 	options := Options{
-		Model: model,
-		RAG:   system,
+		Model:     model,
+		Knowledge: lookup,
 	}
 	for _, opt := range opts {
 		opt(&options)
@@ -260,6 +250,12 @@ func newTestFlow(t *testing.T, model llm.ChatModel, opts ...testFlowOption) agen
 		t.Fatalf("New() error = %v", err)
 	}
 	return flow
+}
+
+type staticPolicyLookup string
+
+func (s staticPolicyLookup) LookupRefundPolicy(_ context.Context, orderID string) (string, error) {
+	return fmt.Sprintf("Refund guidance for order %s: %s", orderID, string(s)), nil
 }
 
 func spanHasBoolAttr(attrs []attribute.KeyValue, key string, want bool) bool {
