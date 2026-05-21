@@ -7,6 +7,7 @@ import (
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/config"
+	"github.com/costa92/llm-agent-customer-support/internal/guardrails"
 	"github.com/costa92/llm-agent-customer-support/internal/httpapi"
 	"github.com/costa92/llm-agent-customer-support/internal/knowledgebase"
 	"github.com/costa92/llm-agent-customer-support/internal/limits"
@@ -104,9 +105,10 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 		return nil, err
 	}
 	agent, err := supportflow.New(supportflow.Options{
-		Model:     wrappedModel,
-		Knowledge: knowledge,
-		Sessions:  sessions,
+		Model:      wrappedModel,
+		Knowledge:  knowledge,
+		Sessions:   sessions,
+		Guardrails: guardrails.New(guardrails.Config{}),
 	})
 	if err != nil {
 		_ = sessions.Close()
