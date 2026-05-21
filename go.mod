@@ -4,14 +4,14 @@ go 1.26.0
 
 require (
 	github.com/costa92/llm-agent v0.5.1
-	github.com/costa92/llm-agent-otel v0.2.1
+	github.com/costa92/llm-agent-otel v0.2.2
 	github.com/costa92/llm-agent-providers v0.2.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/sdk v1.43.0
 	go.opentelemetry.io/otel/trace v1.43.0
-	modernc.org/sqlite v1.49.1
+	modernc.org/sqlite v1.50.1
 )
 
 require (
@@ -20,7 +20,8 @@ require (
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/costa92/llm-agent-rag v1.0.1 // indirect
+	github.com/costa92/llm-agent-flow v0.1.1
+	github.com/costa92/llm-agent-rag v1.0.1
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -54,7 +55,7 @@ require (
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/libc v1.72.0 // indirect
+	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
