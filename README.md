@@ -110,13 +110,16 @@ The only remaining Phase 7 follow-up is publishing the final coordinated tags.
 This repo now expects `.github/workflows/pr-governance.yml` to enforce a simple policy:
 
 - PRs authored by `costa92` should pass governance automatically and enable auto-merge after required checks pass.
+- Same-repo owner branches should be deleted explicitly by that workflow after the PR is confirmed merged.
 - PRs authored by anyone else should request review from `costa92` and stay blocked until `costa92` approves the current PR head.
 
 This policy is designed to work with branch protection that requires the `go` and `governance` status checks, instead of GitHub's built-in required-approval gate.
 
+The repo-level `deleteBranchOnMerge` setting remains enabled as a safety net, but the primary tested path is now inside `pr-governance.yml` itself: enable auto-merge, wait until the PR is visibly merged, then delete the same-repo head ref with the GitHub API. Standalone downstream cleanup workflows were tested during rollout and are no longer the documented primary mechanism.
+
 The full multi-repo governance design, including the relationship between
-`llm-agent`, `llm-agent-providers`, `llm-agent-otel`, and
-`llm-agent-customer-support`, lives in the core repo docs:
+`llm-agent`, `llm-agent-rag`, `llm-agent-flow`, `llm-agent-providers`,
+`llm-agent-otel`, and `llm-agent-customer-support`, lives in the core repo docs:
 
 - [`PR-GOVERNANCE-OVERVIEW.md`](https://github.com/costa92/llm-agent/blob/main/docs/PR-GOVERNANCE-OVERVIEW.md)
 - [`PR-GOVERNANCE-PROJECTS.md`](https://github.com/costa92/llm-agent/blob/main/docs/PR-GOVERNANCE-PROJECTS.md)
