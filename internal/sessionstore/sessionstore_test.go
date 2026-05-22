@@ -66,6 +66,28 @@ func TestStore_GetMissingReturnsErrNotFound(t *testing.T) {
 	}
 }
 
+func TestSQLStore_PingContext_ReturnsAfterClose(t *testing.T) {
+	store, err := OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "ping.db"))
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	pinger, ok := store.(interface {
+		PingContext(context.Context) error
+	})
+	if !ok {
+		t.Fatalf("sqlStore does not implement PingContext (sibling capability for /readyz)")
+	}
+	if err := pinger.PingContext(context.Background()); err != nil {
+		t.Fatalf("PingContext() before close = %v, want nil", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if err := pinger.PingContext(context.Background()); err == nil {
+		t.Fatal("PingContext() after close = nil, want non-nil error")
+	}
+}
+
 func TestPostgresDialect_SharesStorageContract(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
