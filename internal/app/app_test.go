@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -614,3 +615,69 @@ var _ sessionstore.Store = (*closeTrackingSessionStore)(nil)
 
 var _ TracerProvider = (*shutdownTracker)(nil)
 var _ agents.Agent = interface{ agents.Agent }(nil)
+
+// fakePingStore implements sessionstore.Store via an embedded (nil-ok) base
+// and exposes a configurable PingContext for /readyz probe tests.
+type fakePingStore struct {
+	sessionstore.Store
+	err error
+}
+
+func (f *fakePingStore) PingContext(context.Context) error { return f.err }
+
+// noPingStore implements only sessionstore.Store (no PingContext sibling).
+type noPingStore struct {
+	sessionstore.Store
+}
+
+// stubEmbedder is a deterministic llm.Embedder for ready-probe tests.
+type stubEmbedder struct {
+	err error
+}
+
+func (s stubEmbedder) Embed(context.Context, []string) ([]llm.Vector, llm.Usage, error) {
+	if s.err != nil {
+		return nil, llm.Usage{}, s.err
+	}
+	return []llm.Vector{{0.1}}, llm.Usage{}, nil
+}
+
+func (s stubEmbedder) EmbedDimensions() int { return 1 }
+
+func TestMakeReadyFunc(t *testing.T) {
+	okEmbed := stubEmbedder{}
+	errEmbed := stubEmbedder{err: errors.New("upstream unavailable")}
+
+	tests := []struct {
+		name          string
+		sessions      sessionstore.Store
+		embedder      llm.Embedder
+		probeEmbedder bool
+		wantErrSub    string
+	}{
+		{name: "happy path", sessions: &fakePingStore{}, embedder: okEmbed, probeEmbedder: true, wantErrSub: ""},
+		{name: "db ping fails", sessions: &fakePingStore{err: errors.New("conn refused")}, embedder: okEmbed, probeEmbedder: true, wantErrSub: "session database"},
+		{name: "embedder fails when probe enabled", sessions: &fakePingStore{}, embedder: errEmbed, probeEmbedder: true, wantErrSub: "embedder"},
+		{name: "embedder fails but probe disabled passes", sessions: &fakePingStore{}, embedder: errEmbed, probeEmbedder: false, wantErrSub: ""},
+		{name: "store without pinger is skipped", sessions: &noPingStore{}, embedder: okEmbed, probeEmbedder: true, wantErrSub: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ready := makeReadyFunc(tc.sessions, tc.embedder, tc.probeEmbedder)
+			err := ready(context.Background())
+			if tc.wantErrSub == "" {
+				if err != nil {
+					t.Fatalf("ready() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ready() = nil, want error containing %q", tc.wantErrSub)
+			}
+			if !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Fatalf("ready() error = %q, want substring %q", err.Error(), tc.wantErrSub)
+			}
+		})
+	}
+}

@@ -304,6 +304,30 @@ func TestReadyHandler_ReportsUnavailable(t *testing.T) {
 	assertSingleSpanStatus(t, exp.GetSpans(), "GET /readyz", codes.Error)
 }
 
+// TestReadyHandler_PropagatesErrorMessageInBody locks the body-propagation
+// contract: operators inspecting kubectl describe pod or compose logs must
+// see the actual ReadyFunc failure reason (e.g. "session database
+// unavailable: ...") instead of a bare 503.
+func TestReadyHandler_PropagatesErrorMessageInBody(t *testing.T) {
+	mux := NewMux(Handlers{
+		Agent: newStubAgent("ok"),
+		Ready: func(context.Context) error {
+			return errors.New("custom upstream probe message xyz")
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(rec.Body.String(), "custom upstream probe message xyz") {
+		t.Fatalf("body = %q, want substring of ReadyFunc error", rec.Body.String())
+	}
+}
+
 type stubAgent struct {
 	answer string
 	err    error
