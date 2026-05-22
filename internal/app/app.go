@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/config"
@@ -129,7 +131,7 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*App, error) {
 	mux := httpapi.NewMux(httpapi.Handlers{
 		Agent:  wrappedAgent,
 		Guard:  guard,
-		Ready:  func(context.Context) error { return nil },
+		Ready:  makeReadyFunc(sessions, embedder, cfg.ReadinessProbeEmbedder),
 		Tracer: tp.Tracer("github.com/costa92/llm-agent-customer-support/httpapi"),
 	})
 
@@ -227,4 +229,37 @@ func defaultSessionStoreFactory(ctx context.Context, cfg config.Config) (session
 		return sessionstore.OpenPostgres(ctx, cfg.SessionDSN)
 	}
 	return sessionstore.OpenSQLite(ctx, cfg.SessionDSN)
+}
+
+// makeReadyFunc returns a ReadyFunc that probes external dependencies for
+// GET /readyz:
+//  1. sessions.PingContext (best-effort: only if the store implements the
+//     sibling capability)
+//  2. (optional) a 1-second cheap embedder.Embed("ok") to confirm model
+//     reachability, gated on probeEmbedder
+//
+// Total wall-clock bounded at 2s. A non-nil return makes /readyz respond
+// 503 — this is the contract K8s readinessProbe consumes.
+func makeReadyFunc(sessions sessionstore.Store, embedder llm.Embedder, probeEmbedder bool) httpapi.ReadyFunc {
+	return func(ctx context.Context) error {
+		cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+
+		if pinger, ok := sessions.(interface {
+			PingContext(context.Context) error
+		}); ok {
+			if err := pinger.PingContext(cctx); err != nil {
+				return fmt.Errorf("session database unavailable: %w", err)
+			}
+		}
+
+		if probeEmbedder && embedder != nil {
+			embCtx, embCancel := context.WithTimeout(cctx, time.Second)
+			defer embCancel()
+			if _, _, err := embedder.Embed(embCtx, []string{"ok"}); err != nil {
+				return fmt.Errorf("embedder unavailable: %w", err)
+			}
+		}
+		return nil
+	}
 }

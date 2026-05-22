@@ -34,6 +34,12 @@ type Config struct {
 	ServiceName               string
 	ShutdownTimeout           time.Duration
 
+	// ReadinessProbeEmbedder controls whether GET /readyz invokes a 1s
+	// embedder.Embed("ok") probe in addition to the session-store ping.
+	// Default true. Set READINESS_PROBE_EMBEDDER=false in environments
+	// where the embedder is rate-limited or shares budget with user traffic.
+	ReadinessProbeEmbedder bool
+
 	OTLPProtocol string
 	OTLPEndpoint string
 	OTLPInsecure bool
@@ -70,6 +76,7 @@ func LoadFromLookup(lookup func(string) (string, bool)) (Config, error) {
 		RetryMaxAttempts:          envIntOrDefault(lookup, "RETRY_MAX_ATTEMPTS", 2),
 		DailyTokenBudget:          envIntOrDefault(lookup, "DAILY_TOKEN_BUDGET", 100000),
 		DisableLLM:                envBoolOrDefault(lookup, "DISABLE_LLM", false),
+		ReadinessProbeEmbedder:    envBoolOrDefault(lookup, "READINESS_PROBE_EMBEDDER", true),
 	}
 
 	switch cfg.Provider {
