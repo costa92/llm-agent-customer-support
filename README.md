@@ -66,7 +66,7 @@ Observability caveat: this is a demo stack, not a billing or SLO source of truth
 
 ## Architecture (Phase 6 preview)
 
-- HTTP API: `POST /chat`, `POST /chat/stream` (SSE), `GET /healthz`, `GET /readyz`, `X-Trace-Id` response header.
+- HTTP API: `POST /chat`, `POST /chat/stream` (SSE), `GET /healthz`, `GET /readyz`, `X-Trace-Id` response header. `/readyz` actively probes the session store (`PingContext`) and — when `READINESS_PROBE_EMBEDDER=true`, the default — issues a 1-second `embedder.Embed("ok")` call; failures return `503` with the upstream error in the body so K8s/compose readiness reflects real serving state.
 - Provider switch: `LLM_PROVIDER=openai|anthropic|ollama` + `EMBEDDING_PROVIDER=openai|ollama`. Chat and embeddings are now selected independently, so `LLM_PROVIDER=anthropic` can run with `EMBEDDING_PROVIDER=openai|ollama`.
 - Session backend: `SESSION_BACKEND=sqlite|postgres` with `SESSION_DSN` selecting the concrete database. Requests accept `session_id`; if absent the service creates one and returns it in `X-Session-Id`.
 - Support flow: chargeback/fraud routes to human handoff, missing order IDs request clarification, refund/order questions use a tool-backed RAG lookup path.
