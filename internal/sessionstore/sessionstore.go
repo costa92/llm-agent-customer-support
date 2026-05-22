@@ -139,6 +139,14 @@ func (s *sqlStore) Close() error {
 	return s.db.Close()
 }
 
+// PingContext exposes the underlying *sql.DB.PingContext for readiness probes.
+// Returns nil if the connection is alive. Callers detect this capability via
+// a type assertion (sibling capability, not part of the Store interface — the
+// exported Store contract is K-frozen).
+func (s *sqlStore) PingContext(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 func (s *sqlStore) ensureSchema(ctx context.Context) error {
 	stmt := `
 CREATE TABLE IF NOT EXISTS support_sessions (
