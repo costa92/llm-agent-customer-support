@@ -80,6 +80,10 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           author=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json author --jq '.author.login')
+          head_ref=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq '.headRefName')
+          default_branch=$(gh repo view "$REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')
+          head_repo=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRepositoryOwner --jq '.headRepositoryOwner.login')
+          repo_owner=${REPO%%/*}
           if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
             echo "Draft PR: skip auto-merge."
             exit 0
@@ -96,5 +100,32 @@ jobs:
           gh pr merge "$PR_NUMBER" \
             --repo "$REPO" \
             --auto \
-            --merge \
-            --delete-branch
+            --merge
+
+          for _ in $(seq 1 90); do
+            state=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq '.state')
+            merged_at=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergedAt --jq '.mergedAt // ""')
+            if [ "$state" = "MERGED" ] && [ -n "$merged_at" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          state=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq '.state')
+          merged_at=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergedAt --jq '.mergedAt // ""')
+          if [ "$state" != "MERGED" ] || [ -z "$merged_at" ]; then
+            echo "PR not merged yet; leave branch cleanup to later automation."
+            exit 0
+          fi
+
+          if [ "$head_repo" != "$repo_owner" ]; then
+            echo "Skip deleting fork branch $head_repo:$head_ref"
+            exit 0
+          fi
+
+          if [ "$head_ref" = "$default_branch" ]; then
+            echo "Skip deleting default branch $head_ref"
+            exit 0
+          fi
+
+          gh api -X DELETE "repos/$REPO/git/refs/heads/$head_ref" || true
