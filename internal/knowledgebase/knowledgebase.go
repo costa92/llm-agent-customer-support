@@ -38,6 +38,23 @@ func (a ragEmbedderAdapter) Dimension() int {
 	return a.inner.EmbedDimensions()
 }
 
+// EmbedBatch implements ragembed.BatchEmbedder. The upstream
+// llm.Embedder is already batch-shaped, so we delegate directly
+// without per-text fan-out — closing the batch seam that the v1.0.1
+// per-text Embed adapter destroyed. rag.System.Import auto-engages the
+// batch fast path via type assertion when this method exists.
+func (a ragEmbedderAdapter) EmbedBatch(ctx context.Context, texts []string) ([]ragembed.Vector, error) {
+	vectors, _, err := a.inner.Embed(ctx, texts)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ragembed.Vector, len(vectors))
+	for i, v := range vectors {
+		out[i] = ragembed.Vector(v)
+	}
+	return out, nil
+}
+
 func New(ctx context.Context, embedder llm.Embedder) (PolicyLookup, error) {
 	if embedder == nil {
 		return nil, fmt.Errorf("knowledgebase: embedder is required")
