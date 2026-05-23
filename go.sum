@@ -20,6 +20,8 @@ github.com/costa92/llm-agent-rag v1.0.1 h1:+pR+TJ8betcKnw1IfTooJMA9eRJyUyr4S/Odn
 github.com/costa92/llm-agent-rag v1.0.1/go.mod h1:lAJAZgSU/87p0cVD16cgN7qga/Z5CqwFNc+J6vLrejE=
 github.com/costa92/llm-agent-rag v1.0.3-0.20260523042939-7acca8c40e81 h1:/daM57LQWTtUE2ZVu2JFb5hJ38KW0C+876k3FKpbuzM=
 github.com/costa92/llm-agent-rag v1.0.3-0.20260523042939-7acca8c40e81/go.mod h1:lAJAZgSU/87p0cVD16cgN7qga/Z5CqwFNc+J6vLrejE=
+github.com/costa92/llm-agent-rag v1.0.3 h1:f4j1XJ060zmrV2ptI2BuWJzZJaIm5I3fL7nyC8okRXg=
+github.com/costa92/llm-agent-rag v1.0.3/go.mod h1:lAJAZgSU/87p0cVD16cgN7qga/Z5CqwFNc+J6vLrejE=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dnaeon/go-vcr v1.2.0 h1:zHCHvJYTMh1N7xnV7zf1m1GPBF9Ad0Jk/whtQ1663qI=
