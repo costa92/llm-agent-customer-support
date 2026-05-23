@@ -21,7 +21,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/costa92/llm-agent-flow v0.1.1
-	github.com/costa92/llm-agent-rag v1.0.1
+	github.com/costa92/llm-agent-rag v1.0.3-0.20260523042939-7acca8c40e81
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
