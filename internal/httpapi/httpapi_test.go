@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/limits"
@@ -257,6 +258,61 @@ func TestStreamHandler_EmitsSSE(t *testing.T) {
 	}
 }
 
+// TestStreamHandler_ExitsOnRequestCancel pins the contract that /chat/stream
+// returns promptly when the request context is canceled mid-stream, and that
+// the response body carries an `event: error` envelope mentioning
+// "context canceled". This guards the handler's reliance on
+// runStreamFromBlocking's terminal-event contract (llm-agent/agent.go).
+//
+// RED phase: wired against ignoreCtxStreamAgent (a deliberately-misbehaving
+// stub) to prove the test catches a handler/agent pair that fails to honor
+// ctx.Done(). Will fail with "handler did not return within 2s ...".
+func TestStreamHandler_ExitsOnRequestCancel(t *testing.T) {
+	t.Parallel()
+
+	mux := NewMux(Handlers{
+		Agent:  ignoreCtxStreamAgent{},
+		Ready:  func(context.Context) error { return nil },
+		Tracer: otel.Tracer("test"),
+	})
+
+	body := strings.NewReader(`{"message":"hi","session_id":"sess-cancel"}`)
+	req := httptest.NewRequest(http.MethodPost, "/chat/stream", body)
+	req.Header.Set("Content-Type", "application/json")
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	handlerReturned := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(rec, req)
+		close(handlerReturned)
+	}()
+
+	// Give the handler a moment to enter the for-range over the agent's
+	// channel. The broken stub never closes its channel so there's no
+	// "started" signal to wait on; a short sleep is sufficient because the
+	// test only needs to ensure cancel happens after the for-range starts.
+	time.Sleep(50 * time.Millisecond)
+
+	cancel()
+
+	select {
+	case <-handlerReturned:
+		// good
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return within 2s after request context cancel")
+	}
+
+	got := rec.Body.String()
+	if !strings.Contains(got, "event: error") {
+		t.Errorf("expected 'event: error' in body, got: %q", got)
+	}
+	if !strings.Contains(got, "context canceled") {
+		t.Errorf("expected 'context canceled' in body, got: %q", got)
+	}
+}
+
 func TestHealthAndReadyHandlers(t *testing.T) {
 	mux := NewMux(Handlers{
 		Agent:  newStubAgent("ok"),
@@ -368,6 +424,25 @@ func (a *stubAgent) RunStream(_ context.Context, _ string) (<-chan agents.StepEv
 	return ch, nil
 }
 
+// ignoreCtxStreamAgent is a deliberately-misbehaving stub used to drive the
+// RED phase of the cancel-contract tests. RunStream returns a channel that is
+// never closed and never honors ctx.Done() — the handler's for-range will
+// hang until the test gives up. Proving the test catches a handler that fails
+// to exit on cancel.
+type ignoreCtxStreamAgent struct{}
+
+func (ignoreCtxStreamAgent) Name() string { return "ignoreCtxStreamAgent" }
+
+func (ignoreCtxStreamAgent) Run(_ context.Context, _ string) (agents.Result, error) {
+	return agents.Result{}, nil
+}
+
+func (ignoreCtxStreamAgent) RunStream(_ context.Context, _ string) (<-chan agents.StepEvent, error) {
+	ch := make(chan agents.StepEvent)
+	// Never close ch. Never honor ctx.
+	return ch, nil
+}
+
 type sessionAwareAgent struct {
 	answer        string
 	lastSessionID string
@@ -450,4 +525,5 @@ func assertSingleSpanStatus(t *testing.T, spans tracetest.SpanStubs, name string
 
 var _ agents.Agent = (*stubAgent)(nil)
 var _ agents.Agent = (*sessionAwareAgent)(nil)
+var _ agents.Agent = (*ignoreCtxStreamAgent)(nil)
 var _ llm.ChatModel = (*llm.ScriptedLLM)(nil)
