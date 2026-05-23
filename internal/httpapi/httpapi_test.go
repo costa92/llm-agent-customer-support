@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/limits"
@@ -257,6 +258,116 @@ func TestStreamHandler_EmitsSSE(t *testing.T) {
 	}
 }
 
+// TestStreamHandler_ExitsOnRequestCancel pins the contract that /chat/stream
+// returns promptly when the request context is canceled mid-stream, and that
+// the response body carries an `event: error` envelope mentioning
+// "context canceled". This guards the handler's reliance on
+// runStreamFromBlocking's terminal-event contract (llm-agent/agent.go).
+//
+// GREEN phase: wired against slowStreamAgent, the cancel-honoring stub that
+// mirrors the upstream runStreamFromBlocking contract.
+func TestStreamHandler_ExitsOnRequestCancel(t *testing.T) {
+	t.Parallel()
+
+	agent := newSlowStreamAgent()
+	mux := NewMux(Handlers{
+		Agent:  agent,
+		Ready:  func(context.Context) error { return nil },
+		Tracer: otel.Tracer("test"),
+	})
+
+	body := strings.NewReader(`{"message":"hi","session_id":"sess-cancel"}`)
+	req := httptest.NewRequest(http.MethodPost, "/chat/stream", body)
+	req.Header.Set("Content-Type", "application/json")
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	handlerReturned := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(rec, req)
+		close(handlerReturned)
+	}()
+
+	// Wait for the agent goroutine to enter RunStream so cancel happens
+	// after the for-range loop is active.
+	select {
+	case <-agent.started:
+	case <-time.After(1 * time.Second):
+		t.Fatal("agent did not start RunStream within 1s")
+	}
+
+	cancel()
+
+	select {
+	case <-handlerReturned:
+		// good
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return within 2s after request context cancel")
+	}
+
+	got := rec.Body.String()
+	if !strings.Contains(got, "event: error") {
+		t.Errorf("expected 'event: error' in body, got: %q", got)
+	}
+	if !strings.Contains(got, "context canceled") {
+		t.Errorf("expected 'context canceled' in body, got: %q", got)
+	}
+}
+
+// TestStreamHandler_PropagatesCancelToAgent asserts that canceling the HTTP
+// request context propagates into the agent's RunStream goroutine: the agent
+// observes ctx.Done() and exits cleanly. Together with
+// TestStreamHandler_ExitsOnRequestCancel this pins both directions of the
+// cancel contract (handler-exits-on-cancel + agent-sees-cancel).
+func TestStreamHandler_PropagatesCancelToAgent(t *testing.T) {
+	t.Parallel()
+
+	agent := newSlowStreamAgent()
+	mux := NewMux(Handlers{
+		Agent:  agent,
+		Ready:  func(context.Context) error { return nil },
+		Tracer: otel.Tracer("test"),
+	})
+
+	body := strings.NewReader(`{"message":"hi","session_id":"sess-prop"}`)
+	req := httptest.NewRequest(http.MethodPost, "/chat/stream", body)
+	req.Header.Set("Content-Type", "application/json")
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	handlerReturned := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(rec, req)
+		close(handlerReturned)
+	}()
+
+	select {
+	case <-agent.started:
+	case <-time.After(1 * time.Second):
+		t.Fatal("agent did not start RunStream within 1s")
+	}
+
+	cancel()
+
+	select {
+	case <-handlerReturned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return within 2s after cancel")
+	}
+
+	if !agent.observedCancel.Load() {
+		t.Error("agent did not observe ctx cancellation")
+	}
+
+	select {
+	case <-agent.agentDone:
+	case <-time.After(1 * time.Second):
+		t.Fatal("agent goroutine did not exit within 1s")
+	}
+}
+
 func TestHealthAndReadyHandlers(t *testing.T) {
 	mux := NewMux(Handlers{
 		Agent:  newStubAgent("ok"),
@@ -368,6 +479,43 @@ func (a *stubAgent) RunStream(_ context.Context, _ string) (<-chan agents.StepEv
 	return ch, nil
 }
 
+// slowStreamAgent is the cancel-honoring stub used by the SSE cancel-contract
+// tests. It blocks on ctx.Done(), records the cancellation, emits the
+// terminal StepEvent{Done: true, Err: ctx.Err()}, and closes the channel —
+// matching the upstream runStreamFromBlocking contract
+// (llm-agent/agent.go runStreamFromBlocking).
+type slowStreamAgent struct {
+	started        chan struct{} // closed when RunStream is entered
+	observedCancel atomic.Bool   // flipped true once the agent sees ctx.Done()
+	agentDone      chan struct{} // closed when the agent goroutine exits cleanly
+}
+
+func newSlowStreamAgent() *slowStreamAgent {
+	return &slowStreamAgent{
+		started:   make(chan struct{}),
+		agentDone: make(chan struct{}),
+	}
+}
+
+func (s *slowStreamAgent) Name() string { return "slowStreamAgent" }
+
+func (s *slowStreamAgent) Run(_ context.Context, _ string) (agents.Result, error) {
+	return agents.Result{}, nil
+}
+
+func (s *slowStreamAgent) RunStream(ctx context.Context, _ string) (<-chan agents.StepEvent, error) {
+	ch := make(chan agents.StepEvent, 1)
+	go func() {
+		defer close(ch)
+		defer close(s.agentDone)
+		close(s.started)
+		<-ctx.Done()
+		s.observedCancel.Store(true)
+		ch <- agents.StepEvent{Done: true, Err: ctx.Err()}
+	}()
+	return ch, nil
+}
+
 type sessionAwareAgent struct {
 	answer        string
 	lastSessionID string
@@ -450,4 +598,5 @@ func assertSingleSpanStatus(t *testing.T, spans tracetest.SpanStubs, name string
 
 var _ agents.Agent = (*stubAgent)(nil)
 var _ agents.Agent = (*sessionAwareAgent)(nil)
+var _ agents.Agent = (*slowStreamAgent)(nil)
 var _ llm.ChatModel = (*llm.ScriptedLLM)(nil)
