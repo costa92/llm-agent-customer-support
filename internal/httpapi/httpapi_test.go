@@ -479,25 +479,6 @@ func (a *stubAgent) RunStream(_ context.Context, _ string) (<-chan agents.StepEv
 	return ch, nil
 }
 
-// ignoreCtxStreamAgent is a deliberately-misbehaving stub used to drive the
-// RED phase of the cancel-contract tests. RunStream returns a channel that is
-// never closed and never honors ctx.Done() — the handler's for-range will
-// hang until the test gives up. Proving the test catches a handler that fails
-// to exit on cancel.
-type ignoreCtxStreamAgent struct{}
-
-func (ignoreCtxStreamAgent) Name() string { return "ignoreCtxStreamAgent" }
-
-func (ignoreCtxStreamAgent) Run(_ context.Context, _ string) (agents.Result, error) {
-	return agents.Result{}, nil
-}
-
-func (ignoreCtxStreamAgent) RunStream(_ context.Context, _ string) (<-chan agents.StepEvent, error) {
-	ch := make(chan agents.StepEvent)
-	// Never close ch. Never honor ctx.
-	return ch, nil
-}
-
 // slowStreamAgent is the cancel-honoring stub used by the SSE cancel-contract
 // tests. It blocks on ctx.Done(), records the cancellation, emits the
 // terminal StepEvent{Done: true, Err: ctx.Err()}, and closes the channel —
@@ -617,6 +598,5 @@ func assertSingleSpanStatus(t *testing.T, spans tracetest.SpanStubs, name string
 
 var _ agents.Agent = (*stubAgent)(nil)
 var _ agents.Agent = (*sessionAwareAgent)(nil)
-var _ agents.Agent = (*ignoreCtxStreamAgent)(nil)
 var _ agents.Agent = (*slowStreamAgent)(nil)
 var _ llm.ChatModel = (*llm.ScriptedLLM)(nil)
