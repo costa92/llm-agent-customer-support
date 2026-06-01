@@ -94,11 +94,11 @@ handler:
 
 ```go
 func (h *handler) handleFlowRequest(ctx context.Context, ...) error {
-    // Optional: pull tools from the app's existing tool catalog.
-    tools := flow.FromAgentTools(h.app.Tools())
+    // The host app supplies its own tracer provider and tool set.
+    tools := flow.FromAgentTools(myAgentTools())
 
     runner, err := flowrunner.New(flowrunner.Config{
-        TracerProvider: h.app.TracerProvider(),
+        TracerProvider: tp,
         Tools:          tools,
     })
     if err != nil {
@@ -150,8 +150,10 @@ GOWORK=off go test ./internal/flowrunner/ -count=1 -v
 The package adds two direct dependencies to this module:
 
 - `github.com/costa92/llm-agent-flow v0.1.1` (the engine)
-- `github.com/costa92/llm-agent-otel v0.2.2` (already-present, bumped
-  for the new `otelflow` sub-package)
+- `github.com/costa92/llm-agent-otel v0.2.2` (this is the **current
+  `go.mod` pin in this repo**, kept for customer-support's present
+  dependency snapshot; the broader ecosystem has since tagged later
+  `llm-agent-otel` releases)
 
 Both are sister repos within the same `costa92/*` ecosystem; their
 freeze guarantees (v0.1.x and v0.2.x respectively) bound the API
