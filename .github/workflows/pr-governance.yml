@@ -104,6 +104,8 @@ jobs:
             --auto \
             --merge
 
+          # Poll the PR because GitHub may report auto-merge enabled a little
+          # earlier than the merged state becomes visible via the PR API.
           for _ in $(seq 1 90); do
             state=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq '.state')
             merged_at=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json mergedAt --jq '.mergedAt // ""')
