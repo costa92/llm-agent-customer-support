@@ -4,9 +4,9 @@ Reference customer-support service built on [`github.com/costa92/llm-agent`](htt
 
 > **Demo only — production deployment requires hardening.** Single-container `grafana/otel-lgtm`, no auth on `/chat`, dev secrets, hard caps tuned for local demo. The shipped `compose.yaml` brings the stack up in <60s; what it does NOT include: TLS termination, authentication, secret management, multi-tenant isolation, regional sharding.
 
-> **v0.1.0-pre / Phase 6 day-one guardrails online.** The service now supports independent chat-provider and embedding-provider selection, a real support orchestration path built from StateGraph triage + RAG lookup + native tool calling, durable conversation state through a shared SQLite/Postgres session-store contract, config-driven hard caps with a live `DISABLE_LLM` panic switch, and layered day-one prompt-injection defenses. Compose/demo polish still lands in the final Phase 6 plan.
+> **Current code snapshot.** The service supports independent chat-provider and embedding-provider selection, a support orchestration path built from StateGraph triage + RAG lookup + native tool calling, durable conversation state through a shared SQLite/Postgres session-store contract, config-driven hard caps with a live `DISABLE_LLM` panic switch, and layered prompt-injection defenses.
 
-> **Current local-dev note:** this repo currently uses local `replace` directives during cross-repo execution so the service can build against sibling checkouts of `llm-agent`, `llm-agent-providers`, and `llm-agent-otel` before coordinated tags exist. Those `replace` lines are a temporary development escape hatch and must not ship on release branches.
+> **Local-dev note.** `go.mod` currently contains no `replace` directives. For cross-repo iteration you can still use sibling `go.work` via `./scripts/workspace.sh`, or add temporary local `replace` lines as a one-off escape hatch. `release-precheck` rejects non-empty `replace` blocks on `release/**`.
 
 > **K8s manifests are NOT part of v0.3.** See [PITFALLS Pitfall 16](https://github.com/costa92/llm-agent/blob/main/.planning/research/PITFALLS.md) for rationale. Half-shipped K8s is worse than no K8s; the v0.4 deferral note is on the roadmap. Do NOT submit Helm charts / kustomize / kind config in PRs against this repo until v0.4 milestone-planning explicitly includes them.
 
@@ -76,9 +76,9 @@ Observability caveat: this is a demo stack, not a billing or SLO source of truth
 
 ## Cross-repo iteration pattern (INFRA-06)
 
-This repo lives in a 4-repo umbrella alongside [`llm-agent`](https://github.com/costa92/llm-agent), [`llm-agent-providers`](https://github.com/costa92/llm-agent-providers), and [`llm-agent-otel`](https://github.com/costa92/llm-agent-otel). For local development across repos:
+This repo is part of the broader `llm-agent-ecosystem`. The local helper script in this repo targets a common 4-repo development subset alongside [`llm-agent`](https://github.com/costa92/llm-agent), [`llm-agent-providers`](https://github.com/costa92/llm-agent-providers), and [`llm-agent-otel`](https://github.com/costa92/llm-agent-otel). For local development across that subset:
 
-**Recommended:** clone all 4 repos as siblings, run `./scripts/workspace.sh` from any of them, then develop with a `go.work` file. The workspace file is `.gitignore`d in every repo:
+**Recommended for this subset:** clone all 4 repos as siblings, run `./scripts/workspace.sh` from any of them, then develop with a `go.work` file. The workspace file is `.gitignore`d in every repo:
 
 ```bash
 cd <parent>
@@ -101,9 +101,13 @@ The `release-precheck` CI workflow rejects any non-empty `replace` block on bran
 
 ## Versioning
 
-This repo is already code-compatible with the `llm-agent v0.4` core surface.
-Its local release-prep state now targets `github.com/costa92/llm-agent v0.4.0`.
-The only remaining Phase 7 follow-up is publishing the final coordinated tags.
+This repo tracks the broader ecosystem through coordinated bump waves. Check
+`go.mod` for the current exact sibling pins; in the current code snapshot it
+depends on `github.com/costa92/llm-agent v0.5.1`,
+`github.com/costa92/llm-agent-otel v0.2.2`,
+`github.com/costa92/llm-agent-providers v0.2.1`,
+`github.com/costa92/llm-agent-flow v0.1.1`, and
+`github.com/costa92/llm-agent-rag v1.9.0`.
 
 ## PR automation
 
