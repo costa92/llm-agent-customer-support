@@ -11,7 +11,7 @@ import (
 	"github.com/costa92/llm-agent-customer-support/internal/guardrails"
 	"github.com/costa92/llm-agent-customer-support/internal/knowledgebase"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 	"github.com/costa92/llm-agent/orchestrate"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

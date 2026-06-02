@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	ragembed "github.com/costa92/llm-agent-rag/embed"
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 )
 
 func TestNewAndLookupRefundPolicy(t *testing.T) {

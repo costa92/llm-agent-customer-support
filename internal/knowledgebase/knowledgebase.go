@@ -8,7 +8,7 @@ import (
 	ragingest "github.com/costa92/llm-agent-rag/ingest"
 	ragcore "github.com/costa92/llm-agent-rag/rag"
 	ragstore "github.com/costa92/llm-agent-rag/store"
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 )
 
 type PolicyLookup interface {

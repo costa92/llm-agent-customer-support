@@ -14,7 +14,7 @@ import (
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent-customer-support/internal/config"
 	"github.com/costa92/llm-agent-customer-support/internal/sessionstore"
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )

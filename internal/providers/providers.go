@@ -7,7 +7,7 @@ import (
 	anthropicprovider "github.com/costa92/llm-agent-providers/anthropic"
 	ollamaprovider "github.com/costa92/llm-agent-providers/ollama"
 	openaiprovider "github.com/costa92/llm-agent-providers/openai"
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 )
 
 func NewChatModel(cfg config.Config) (llm.ChatModel, error) {
