@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	agents "github.com/costa92/llm-agent"
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 )
 
 func TestNewToolAgent_BindsToolsAndPrependsSystemPrompt(t *testing.T) {

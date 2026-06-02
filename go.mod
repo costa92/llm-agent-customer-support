@@ -15,16 +15,12 @@ require (
 )
 
 require (
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-)
-
-require (
 	github.com/anthropics/anthropic-sdk-go v1.41.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/costa92/llm-agent-contract v0.0.0
 	github.com/costa92/llm-agent-flow v0.1.1
 	github.com/costa92/llm-agent-rag v1.9.0
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -63,4 +59,13 @@ require (
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+)
+
+replace (
+	github.com/costa92/llm-agent => ../llm-agent
+	github.com/costa92/llm-agent-contract => ../llm-agent-contract
+	github.com/costa92/llm-agent-flow => ../llm-agent-flow
+	github.com/costa92/llm-agent-otel => ../llm-agent-otel
+	github.com/costa92/llm-agent-providers => ../llm-agent-providers
+	github.com/costa92/llm-agent-rag => ../llm-agent-rag
 )
