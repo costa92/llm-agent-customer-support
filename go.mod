@@ -3,9 +3,9 @@ module github.com/costa92/llm-agent-customer-support
 go 1.26.0
 
 require (
-	github.com/costa92/llm-agent v0.7.0
-	github.com/costa92/llm-agent-otel v0.3.0
-	github.com/costa92/llm-agent-providers v0.2.5
+	github.com/costa92/llm-agent v0.8.0
+	github.com/costa92/llm-agent-otel v0.4.0
+	github.com/costa92/llm-agent-providers v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
 	go.opentelemetry.io/otel v1.43.0
@@ -20,9 +20,9 @@ require (
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/costa92/llm-agent-contract v0.0.0
-	github.com/costa92/llm-agent-flow v0.1.1
-	github.com/costa92/llm-agent-rag v1.9.0
+	github.com/costa92/llm-agent-contract v0.1.0
+	github.com/costa92/llm-agent-flow v0.2.0
+	github.com/costa92/llm-agent-rag v1.10.0
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -59,13 +59,4 @@ require (
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-)
-
-replace (
-	github.com/costa92/llm-agent => ../llm-agent
-	github.com/costa92/llm-agent-contract => ../llm-agent-contract
-	github.com/costa92/llm-agent-flow => ../llm-agent-flow
-	github.com/costa92/llm-agent-otel => ../llm-agent-otel
-	github.com/costa92/llm-agent-providers => ../llm-agent-providers
-	github.com/costa92/llm-agent-rag => ../llm-agent-rag
 )
