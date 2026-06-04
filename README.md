@@ -1,3 +1,5 @@
+[English](./README.md) | [简体中文](./README.zh-CN.md)
+
 # llm-agent-customer-support
 
 Reference customer-support service built on [`github.com/costa92/llm-agent`](https://github.com/costa92/llm-agent) + [`llm-agent-providers`](https://github.com/costa92/llm-agent-providers) + [`llm-agent-otel`](https://github.com/costa92/llm-agent-otel). Multi-agent flow: RAG knowledge lookup + StateGraph triage + native tool calling, end-to-end traces in Grafana.
