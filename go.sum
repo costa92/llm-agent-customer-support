@@ -16,8 +16,8 @@ github.com/costa92/llm-agent-flow v0.2.0 h1:Owlgs5Ul6vQ9jR7z157xnLW6qSaWX5Qa1Oon
 github.com/costa92/llm-agent-flow v0.2.0/go.mod h1:3drRkWCe7Pl1w3ZxwhBVYutH/p8dHyyxF6HeM6XSROo=
 github.com/costa92/llm-agent-otel v0.4.0 h1:E/GeSi4D6cYDXce1BDbO4gc+4f43t13PXKIIaO+SySY=
 github.com/costa92/llm-agent-otel v0.4.0/go.mod h1:eSXCV4jXdIs5OA/vOJ6vwglT4rWBczmHpWSqwr8Pn4Q=
-github.com/costa92/llm-agent-providers v0.3.0 h1:V1hJBaMtwrW8E3yOt4ZLrer3wOtXXOv8vX9ZTy7GW3s=
-github.com/costa92/llm-agent-providers v0.3.0/go.mod h1:pKoZpTWATITC47+35AnR+AuMw9T9/zSuh5bj11CZO7Q=
+github.com/costa92/llm-agent-providers v0.3.1 h1:2n/Mfup+IkzEfLVzguQI8BG+is7CAyEQE8vKICCRff8=
+github.com/costa92/llm-agent-providers v0.3.1/go.mod h1:rNK/s37sC9VVSFKiBxkdOK4qfCjj2CZxBqaKEuM5+80=
 github.com/costa92/llm-agent-rag v1.10.0 h1:qJhoaLxof9xumzKfrkTuvKLVtuoHx5bSyT87Wh9+I1w=
 github.com/costa92/llm-agent-rag v1.10.0/go.mod h1:xxcOJy3ZuAf+ySeY1SDjxC2YwK/Xiy0ydnIBsXdMzk4=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=

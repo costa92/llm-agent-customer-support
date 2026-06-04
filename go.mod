@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/costa92/llm-agent v0.9.0
 	github.com/costa92/llm-agent-otel v0.4.0
-	github.com/costa92/llm-agent-providers v0.3.0
+	github.com/costa92/llm-agent-providers v0.3.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
 	go.opentelemetry.io/otel v1.43.0
